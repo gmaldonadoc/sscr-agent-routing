@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "terminal": {
+      "command": "C:/Users/DELL5520/Downloads/agent_protocol_A2A_APRIMORADO/.venv/Scripts/python.exe",
+      "args": [
+        "C:/Users/DELL5520/Downloads/agent_protocol_A2A_APRIMORADO/mcp_servers/terminal_server.py"
+      ]
+    }
+  }
+}

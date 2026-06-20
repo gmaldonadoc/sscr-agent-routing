@@ -1,0 +1,29 @@
+# Cliente OpenAI e .env
+openai
+python-dotenv
+
+# Servidor Web (Starlette) e executor (Uvicorn)
+starlette
+uvicorn
+fastapi
+
+# Cliente HTTP e Linha de Comando
+httpx
+httpx-sse
+click
+asyncclick
+
+# Modelos de Dados
+pydantic
+
+# Protocolo MCP (para stdio)
+mcp
+
+# Interface Web
+streamlit
+
+# Vector Database
+chromadb
+
+# BM25 Ranking
+rank-bm25

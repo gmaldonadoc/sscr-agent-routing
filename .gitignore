@@ -1,0 +1,97 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# =========================
+# Virtual Environment
+# =========================
+.venv/
+venv/
+env/
+
+# =========================
+# Environment Variables
+# =========================
+.env
+.env.*
+
+# =========================
+# IDE
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# Jupyter
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# OS
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Benchmark Outputs
+# =========================
+results/
+benchmark_results/
+*.csv
+
+# =========================
+# MS MARCO
+# =========================
+#collection.tsv
+queries.dev.tsv
+queries.dev.small.tsv
+queries.eval.tsv
+queries.train.tsv
+
+qrels.dev.tsv
+qrels.dev.small.tsv
+qrels.train.tsv
+
+
+*.gz
+*.parquet
+
+# =========================
+# Synthetic datasets
+# =========================
+synthetic_agents.json
+synthetic_queries.json
+synthetic_ground_truth.json
+
+msmarco_corpus.json
+msmarco_gold_single.json
+msmarco_gold_multi.json
+
+official_gold_single.json
+official_gold_multi.json
+
+# =========================
+# Generated benchmark files
+# =========================
+datasets/**/results/
+datasets/**/*.jsonl
+
+# =========================
+# Runtime files
+# =========================
+*.sqlite
+*.db
+
+# =========================
+# Temporary files
+# =========================
+tmp/
+temp/

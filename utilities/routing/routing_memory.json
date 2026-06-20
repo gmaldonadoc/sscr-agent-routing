@@ -1,0 +1,49 @@
+{
+  "agent_stats": {
+    "TellTimeAgent": {
+      "success": 7,
+      "total": 7
+    }
+  },
+  "signal_agent_success": {
+    "text_output::TellTimeAgent": {
+      "success": 7,
+      "total": 7
+    },
+    "answer::TellTimeAgent": {
+      "success": 7,
+      "total": 7
+    },
+    "time::TellTimeAgent": {
+      "success": 6,
+      "total": 6
+    },
+    "utility::TellTimeAgent": {
+      "success": 6,
+      "total": 6
+    },
+    "text_input::TellTimeAgent": {
+      "success": 7,
+      "total": 7
+    },
+    "general::TellTimeAgent": {
+      "success": 1,
+      "total": 1
+    }
+  },
+  "signal_co_occurrence": {
+    "answer::text_input": 7,
+    "answer::text_output": 7,
+    "answer::time": 6,
+    "answer::utility": 6,
+    "text_input::text_output": 7,
+    "text_input::time": 6,
+    "text_input::utility": 6,
+    "text_output::time": 6,
+    "text_output::utility": 6,
+    "time::utility": 6,
+    "answer::general": 1,
+    "general::text_input": 1,
+    "general::text_output": 1
+  }
+}
