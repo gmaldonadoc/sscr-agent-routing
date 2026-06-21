@@ -109,13 +109,25 @@ class MSMarcoIndexer:
 
         ranked_tokens = [
             token
-            for token, _ in counts.most_common(self.max_signals_per_document)
+            for token, _ in sorted(
+                counts.items(),
+                key=lambda item: (-item[1], item[0])
+            )
         ]
 
-        signals = set(ranked_tokens)
-        signals.update(phrases)
+        ranked_phrases = sorted(phrases)
 
-        return set(list(signals)[: self.max_signals_per_document])
+        ordered_signals = []
+
+        for signal in ranked_tokens:
+            if signal not in ordered_signals:
+                ordered_signals.append(signal)
+
+        for signal in ranked_phrases:
+            if signal not in ordered_signals:
+                ordered_signals.append(signal)
+
+        return set(ordered_signals[: self.max_signals_per_document])
 
     def _tokenize(self, text: str) -> list[str]:
         text = text.lower()
