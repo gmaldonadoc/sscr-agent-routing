@@ -1,0 +1,2125 @@
+{
+  "metadata": {
+    "source_file": "C:\\Users\\DELL5520\\Downloads\\sscr-agent-routing\\datasets\\benchmark_msmarco\\results\\msmarco_passage_sscr_idf_inverted_index_details.json",
+    "selection_method": "stratified_by_sscr_rank",
+    "random_state": 42,
+    "targets": {
+      "easy": 70,
+      "medium": 70,
+      "hard": 60
+    },
+    "available": {
+      "easy": 5,
+      "medium": 10,
+      "hard": 4
+    },
+    "selected_counts": {
+      "medium": 10,
+      "easy": 5,
+      "hard": 4
+    },
+    "selected_total": 19,
+    "discarded_rank_null_or_outside_top10": 15,
+    "total_input_queries": 34
+  },
+  "queries": [
+    {
+      "query_id": "763878",
+      "query": "what is kyc?",
+      "positive_ids": [
+        "11461"
+      ],
+      "rank": 2,
+      "difficulty": "medium",
+      "candidate_count": 10,
+      "latency_ms": 0.0606,
+      "top_results": [
+        {
+          "document_id": "64048",
+          "score": 10.11504,
+          "matched_signals": [
+            "kyc"
+          ]
+        },
+        {
+          "document_id": "11461",
+          "score": 10.11504,
+          "matched_signals": [
+            "kyc"
+          ]
+        },
+        {
+          "document_id": "11460",
+          "score": 10.11504,
+          "matched_signals": [
+            "kyc"
+          ]
+        },
+        {
+          "document_id": "11459",
+          "score": 10.11504,
+          "matched_signals": [
+            "kyc"
+          ]
+        },
+        {
+          "document_id": "11458",
+          "score": 10.11504,
+          "matched_signals": [
+            "kyc"
+          ]
+        },
+        {
+          "document_id": "11456",
+          "score": 10.11504,
+          "matched_signals": [
+            "kyc"
+          ]
+        },
+        {
+          "document_id": "11455",
+          "score": 10.11504,
+          "matched_signals": [
+            "kyc"
+          ]
+        },
+        {
+          "document_id": "11454",
+          "score": 10.11504,
+          "matched_signals": [
+            "kyc"
+          ]
+        },
+        {
+          "document_id": "11453",
+          "score": 10.11504,
+          "matched_signals": [
+            "kyc"
+          ]
+        },
+        {
+          "document_id": "11452",
+          "score": 10.11504,
+          "matched_signals": [
+            "kyc"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "511837",
+      "query": "temperature for cooking salmon in the oven",
+      "positive_ids": [
+        "24284"
+      ],
+      "rank": 2,
+      "difficulty": "medium",
+      "candidate_count": 1967,
+      "latency_ms": 5.2917,
+      "top_results": [
+        {
+          "document_id": "24276",
+          "score": 37.038522,
+          "matched_signals": [
+            "cooking",
+            "cooking_salmon",
+            "oven",
+            "salmon",
+            "temperature"
+          ]
+        },
+        {
+          "document_id": "24284",
+          "score": 31.656486,
+          "matched_signals": [
+            "cooking",
+            "cooking_salmon",
+            "oven",
+            "salmon"
+          ]
+        },
+        {
+          "document_id": "48790",
+          "score": 26.135025,
+          "matched_signals": [
+            "cooking",
+            "oven",
+            "salmon",
+            "temperature"
+          ]
+        },
+        {
+          "document_id": "99651",
+          "score": 25.221192,
+          "matched_signals": [
+            "cooking",
+            "cooking_salmon",
+            "salmon"
+          ]
+        },
+        {
+          "document_id": "85613",
+          "score": 25.221192,
+          "matched_signals": [
+            "cooking",
+            "cooking_salmon",
+            "salmon"
+          ]
+        },
+        {
+          "document_id": "63454",
+          "score": 20.752988,
+          "matched_signals": [
+            "cooking",
+            "oven",
+            "salmon"
+          ]
+        },
+        {
+          "document_id": "48796",
+          "score": 20.752988,
+          "matched_signals": [
+            "cooking",
+            "oven",
+            "salmon"
+          ]
+        },
+        {
+          "document_id": "48795",
+          "score": 20.752988,
+          "matched_signals": [
+            "cooking",
+            "oven",
+            "salmon"
+          ]
+        },
+        {
+          "document_id": "48794",
+          "score": 20.752988,
+          "matched_signals": [
+            "cooking",
+            "oven",
+            "salmon"
+          ]
+        },
+        {
+          "document_id": "24282",
+          "score": 20.752988,
+          "matched_signals": [
+            "cooking",
+            "oven",
+            "salmon"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "248385",
+      "query": "how long do you keep credit card statements",
+      "positive_ids": [
+        "5581"
+      ],
+      "rank": 4,
+      "difficulty": "medium",
+      "candidate_count": 5706,
+      "latency_ms": 18.1246,
+      "top_results": [
+        {
+          "document_id": "95507",
+          "score": 43.917103,
+          "matched_signals": [
+            "card",
+            "card_statements",
+            "credit",
+            "credit_card",
+            "keep",
+            "statements"
+          ]
+        },
+        {
+          "document_id": "95510",
+          "score": 32.097315,
+          "matched_signals": [
+            "card",
+            "credit",
+            "credit_card",
+            "keep",
+            "statements"
+          ]
+        },
+        {
+          "document_id": "85006",
+          "score": 32.097315,
+          "matched_signals": [
+            "card",
+            "credit",
+            "credit_card",
+            "keep",
+            "statements"
+          ]
+        },
+        {
+          "document_id": "5581",
+          "score": 32.097315,
+          "matched_signals": [
+            "card",
+            "credit",
+            "credit_card",
+            "keep",
+            "statements"
+          ]
+        },
+        {
+          "document_id": "95506",
+          "score": 26.815571,
+          "matched_signals": [
+            "keep",
+            "long",
+            "long_keep",
+            "statements"
+          ]
+        },
+        {
+          "document_id": "66618",
+          "score": 26.815571,
+          "matched_signals": [
+            "keep",
+            "long",
+            "long_keep",
+            "statements"
+          ]
+        },
+        {
+          "document_id": "95814",
+          "score": 24.554193,
+          "matched_signals": [
+            "card",
+            "credit",
+            "credit_card",
+            "keep"
+          ]
+        },
+        {
+          "document_id": "85002",
+          "score": 24.554193,
+          "matched_signals": [
+            "card",
+            "credit",
+            "credit_card",
+            "keep"
+          ]
+        },
+        {
+          "document_id": "83082",
+          "score": 23.807421,
+          "matched_signals": [
+            "card",
+            "credit",
+            "credit_card",
+            "long"
+          ]
+        },
+        {
+          "document_id": "47465",
+          "score": 23.807421,
+          "matched_signals": [
+            "card",
+            "credit",
+            "credit_card",
+            "long"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "551413",
+      "query": "what age is a millennial now",
+      "positive_ids": [
+        "42676"
+      ],
+      "rank": 1,
+      "difficulty": "easy",
+      "candidate_count": 4713,
+      "latency_ms": 13.751,
+      "top_results": [
+        {
+          "document_id": "42676",
+          "score": 15.144373,
+          "matched_signals": [
+            "millennial",
+            "now"
+          ]
+        },
+        {
+          "document_id": "70436",
+          "score": 10.567025,
+          "matched_signals": [
+            "millennial"
+          ]
+        },
+        {
+          "document_id": "68532",
+          "score": 10.567025,
+          "matched_signals": [
+            "millennial"
+          ]
+        },
+        {
+          "document_id": "42683",
+          "score": 10.567025,
+          "matched_signals": [
+            "millennial"
+          ]
+        },
+        {
+          "document_id": "42680",
+          "score": 10.567025,
+          "matched_signals": [
+            "millennial"
+          ]
+        },
+        {
+          "document_id": "2995",
+          "score": 10.567025,
+          "matched_signals": [
+            "millennial"
+          ]
+        },
+        {
+          "document_id": "91627",
+          "score": 9.50196,
+          "matched_signals": [
+            "age",
+            "now"
+          ]
+        },
+        {
+          "document_id": "91097",
+          "score": 9.50196,
+          "matched_signals": [
+            "age",
+            "now"
+          ]
+        },
+        {
+          "document_id": "89032",
+          "score": 9.50196,
+          "matched_signals": [
+            "age",
+            "now"
+          ]
+        },
+        {
+          "document_id": "88928",
+          "score": 9.50196,
+          "matched_signals": [
+            "age",
+            "now"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "476977",
+      "query": "population density of usa states",
+      "positive_ids": [
+        "49241"
+      ],
+      "rank": 10,
+      "difficulty": "hard",
+      "candidate_count": 5397,
+      "latency_ms": 15.3707,
+      "top_results": [
+        {
+          "document_id": "83496",
+          "score": 24.757318,
+          "matched_signals": [
+            "density",
+            "population",
+            "population_density",
+            "states"
+          ]
+        },
+        {
+          "document_id": "78287",
+          "score": 24.757318,
+          "matched_signals": [
+            "density",
+            "population",
+            "population_density",
+            "states"
+          ]
+        },
+        {
+          "document_id": "77445",
+          "score": 24.757318,
+          "matched_signals": [
+            "density",
+            "population",
+            "population_density",
+            "states"
+          ]
+        },
+        {
+          "document_id": "765",
+          "score": 24.757318,
+          "matched_signals": [
+            "density",
+            "population",
+            "population_density",
+            "states"
+          ]
+        },
+        {
+          "document_id": "76411",
+          "score": 24.757318,
+          "matched_signals": [
+            "density",
+            "population",
+            "population_density",
+            "states"
+          ]
+        },
+        {
+          "document_id": "72456",
+          "score": 24.757318,
+          "matched_signals": [
+            "density",
+            "population",
+            "population_density",
+            "states"
+          ]
+        },
+        {
+          "document_id": "71615",
+          "score": 24.757318,
+          "matched_signals": [
+            "density",
+            "population",
+            "population_density",
+            "states"
+          ]
+        },
+        {
+          "document_id": "60071",
+          "score": 24.757318,
+          "matched_signals": [
+            "density",
+            "population",
+            "population_density",
+            "states"
+          ]
+        },
+        {
+          "document_id": "56822",
+          "score": 24.757318,
+          "matched_signals": [
+            "density",
+            "population",
+            "population_density",
+            "states"
+          ]
+        },
+        {
+          "document_id": "49241",
+          "score": 24.757318,
+          "matched_signals": [
+            "density",
+            "population",
+            "population_density",
+            "states"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "882002",
+      "query": "what normal blood pressure by age",
+      "positive_ids": [
+        "22656"
+      ],
+      "rank": 1,
+      "difficulty": "easy",
+      "candidate_count": 5982,
+      "latency_ms": 18.2004,
+      "top_results": [
+        {
+          "document_id": "22656",
+          "score": 36.786666,
+          "matched_signals": [
+            "age",
+            "blood",
+            "blood_pressure",
+            "normal",
+            "normal_blood",
+            "pressure"
+          ]
+        },
+        {
+          "document_id": "63297",
+          "score": 31.862055,
+          "matched_signals": [
+            "blood",
+            "blood_pressure",
+            "normal",
+            "normal_blood",
+            "pressure"
+          ]
+        },
+        {
+          "document_id": "31135",
+          "score": 31.862055,
+          "matched_signals": [
+            "blood",
+            "blood_pressure",
+            "normal",
+            "normal_blood",
+            "pressure"
+          ]
+        },
+        {
+          "document_id": "22658",
+          "score": 31.862055,
+          "matched_signals": [
+            "blood",
+            "blood_pressure",
+            "normal",
+            "normal_blood",
+            "pressure"
+          ]
+        },
+        {
+          "document_id": "12773",
+          "score": 31.862055,
+          "matched_signals": [
+            "blood",
+            "blood_pressure",
+            "normal",
+            "normal_blood",
+            "pressure"
+          ]
+        },
+        {
+          "document_id": "22662",
+          "score": 27.409225,
+          "matched_signals": [
+            "age",
+            "blood",
+            "blood_pressure",
+            "normal",
+            "pressure"
+          ]
+        },
+        {
+          "document_id": "99131",
+          "score": 22.484613,
+          "matched_signals": [
+            "blood",
+            "blood_pressure",
+            "normal",
+            "pressure"
+          ]
+        },
+        {
+          "document_id": "63685",
+          "score": 22.484613,
+          "matched_signals": [
+            "blood",
+            "blood_pressure",
+            "normal",
+            "pressure"
+          ]
+        },
+        {
+          "document_id": "59715",
+          "score": 22.484613,
+          "matched_signals": [
+            "blood",
+            "blood_pressure",
+            "normal",
+            "pressure"
+          ]
+        },
+        {
+          "document_id": "548",
+          "score": 22.484613,
+          "matched_signals": [
+            "blood",
+            "blood_pressure",
+            "normal",
+            "pressure"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "242107",
+      "query": "how long can i keep cooked italian sausage in refrigerator",
+      "positive_ids": [
+        "92150"
+      ],
+      "rank": 1,
+      "difficulty": "easy",
+      "candidate_count": 4990,
+      "latency_ms": 16.1805,
+      "top_results": [
+        {
+          "document_id": "92150",
+          "score": 68.860952,
+          "matched_signals": [
+            "cooked",
+            "cooked_italian",
+            "italian",
+            "italian_sausage",
+            "keep",
+            "refrigerator",
+            "sausage",
+            "sausage_refrigerator"
+          ]
+        },
+        {
+          "document_id": "48374",
+          "score": 53.061382,
+          "matched_signals": [
+            "cooked",
+            "keep",
+            "keep_cooked",
+            "long",
+            "long_keep",
+            "refrigerator",
+            "sausage"
+          ]
+        },
+        {
+          "document_id": "92152",
+          "score": 34.698644,
+          "matched_signals": [
+            "keep",
+            "long",
+            "long_keep",
+            "refrigerator",
+            "sausage"
+          ]
+        },
+        {
+          "document_id": "92156",
+          "score": 26.462374,
+          "matched_signals": [
+            "keep",
+            "long",
+            "long_keep",
+            "refrigerator"
+          ]
+        },
+        {
+          "document_id": "75104",
+          "score": 26.220864,
+          "matched_signals": [
+            "cooked",
+            "keep",
+            "long",
+            "long_keep"
+          ]
+        },
+        {
+          "document_id": "48377",
+          "score": 26.220864,
+          "matched_signals": [
+            "cooked",
+            "keep",
+            "long",
+            "long_keep"
+          ]
+        },
+        {
+          "document_id": "90150",
+          "score": 25.832026,
+          "matched_signals": [
+            "italian",
+            "italian_sausage",
+            "sausage"
+          ]
+        },
+        {
+          "document_id": "90149",
+          "score": 25.832026,
+          "matched_signals": [
+            "italian",
+            "italian_sausage",
+            "sausage"
+          ]
+        },
+        {
+          "document_id": "90145",
+          "score": 25.832026,
+          "matched_signals": [
+            "italian",
+            "italian_sausage",
+            "sausage"
+          ]
+        },
+        {
+          "document_id": "90143",
+          "score": 25.832026,
+          "matched_signals": [
+            "italian",
+            "italian_sausage",
+            "sausage"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "1049894",
+      "query": "who sang i feel wonderful tonight",
+      "positive_ids": [
+        "22297"
+      ],
+      "rank": 8,
+      "difficulty": "hard",
+      "candidate_count": 1091,
+      "latency_ms": 2.6611,
+      "top_results": [
+        {
+          "document_id": "22303",
+          "score": 43.575913,
+          "matched_signals": [
+            "feel",
+            "feel_wonderful",
+            "tonight",
+            "wonderful",
+            "wonderful_tonight"
+          ]
+        },
+        {
+          "document_id": "22306",
+          "score": 25.934031,
+          "matched_signals": [
+            "tonight",
+            "wonderful",
+            "wonderful_tonight"
+          ]
+        },
+        {
+          "document_id": "22305",
+          "score": 25.934031,
+          "matched_signals": [
+            "tonight",
+            "wonderful",
+            "wonderful_tonight"
+          ]
+        },
+        {
+          "document_id": "22304",
+          "score": 25.934031,
+          "matched_signals": [
+            "tonight",
+            "wonderful",
+            "wonderful_tonight"
+          ]
+        },
+        {
+          "document_id": "22302",
+          "score": 25.934031,
+          "matched_signals": [
+            "tonight",
+            "wonderful",
+            "wonderful_tonight"
+          ]
+        },
+        {
+          "document_id": "22301",
+          "score": 25.934031,
+          "matched_signals": [
+            "tonight",
+            "wonderful",
+            "wonderful_tonight"
+          ]
+        },
+        {
+          "document_id": "22299",
+          "score": 15.367006,
+          "matched_signals": [
+            "tonight",
+            "wonderful"
+          ]
+        },
+        {
+          "document_id": "22297",
+          "score": 15.367006,
+          "matched_signals": [
+            "tonight",
+            "wonderful"
+          ]
+        },
+        {
+          "document_id": "82184",
+          "score": 13.581438,
+          "matched_signals": [
+            "feel",
+            "tonight"
+          ]
+        },
+        {
+          "document_id": "58141",
+          "score": 13.581438,
+          "matched_signals": [
+            "feel",
+            "tonight"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "203003",
+      "query": "highest scoring nba final game",
+      "positive_ids": [
+        "91741"
+      ],
+      "rank": 2,
+      "difficulty": "medium",
+      "candidate_count": 2302,
+      "latency_ms": 6.8239,
+      "top_results": [
+        {
+          "document_id": "91749",
+          "score": 38.761273,
+          "matched_signals": [
+            "game",
+            "highest",
+            "highest_scoring",
+            "nba",
+            "scoring"
+          ]
+        },
+        {
+          "document_id": "91741",
+          "score": 38.761273,
+          "matched_signals": [
+            "game",
+            "highest",
+            "highest_scoring",
+            "nba",
+            "scoring"
+          ]
+        },
+        {
+          "document_id": "91744",
+          "score": 31.225071,
+          "matched_signals": [
+            "game",
+            "highest",
+            "highest_scoring",
+            "scoring"
+          ]
+        },
+        {
+          "document_id": "91746",
+          "score": 27.634632,
+          "matched_signals": [
+            "game",
+            "highest",
+            "nba",
+            "scoring"
+          ]
+        },
+        {
+          "document_id": "91745",
+          "score": 27.634632,
+          "matched_signals": [
+            "game",
+            "highest",
+            "nba",
+            "scoring"
+          ]
+        },
+        {
+          "document_id": "55312",
+          "score": 23.060229,
+          "matched_signals": [
+            "final",
+            "final_game",
+            "game"
+          ]
+        },
+        {
+          "document_id": "55307",
+          "score": 23.060229,
+          "matched_signals": [
+            "final",
+            "final_game",
+            "game"
+          ]
+        },
+        {
+          "document_id": "47288",
+          "score": 23.060229,
+          "matched_signals": [
+            "final",
+            "final_game",
+            "game"
+          ]
+        },
+        {
+          "document_id": "29754",
+          "score": 21.937336,
+          "matched_signals": [
+            "highest",
+            "nba",
+            "scoring"
+          ]
+        },
+        {
+          "document_id": "19355",
+          "score": 19.469789,
+          "matched_signals": [
+            "final",
+            "game",
+            "nba"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "275997",
+      "query": "how many calories are in a slice of ham",
+      "positive_ids": [
+        "39460"
+      ],
+      "rank": 6,
+      "difficulty": "hard",
+      "candidate_count": 5715,
+      "latency_ms": 18.0033,
+      "top_results": [
+        {
+          "document_id": "29670",
+          "score": 38.156474,
+          "matched_signals": [
+            "calories",
+            "calories_slice",
+            "many",
+            "many_calories",
+            "slice"
+          ]
+        },
+        {
+          "document_id": "39461",
+          "score": 34.861852,
+          "matched_signals": [
+            "calories",
+            "ham",
+            "slice",
+            "slice_ham"
+          ]
+        },
+        {
+          "document_id": "39459",
+          "score": 27.952554,
+          "matched_signals": [
+            "calories",
+            "ham",
+            "many",
+            "many_calories"
+          ]
+        },
+        {
+          "document_id": "88271",
+          "score": 26.742151,
+          "matched_signals": [
+            "calories",
+            "many",
+            "many_calories",
+            "slice"
+          ]
+        },
+        {
+          "document_id": "97320",
+          "score": 25.377438,
+          "matched_signals": [
+            "calories",
+            "calories_slice",
+            "slice"
+          ]
+        },
+        {
+          "document_id": "39460",
+          "score": 23.042063,
+          "matched_signals": [
+            "calories",
+            "ham",
+            "slice"
+          ]
+        },
+        {
+          "document_id": "39456",
+          "score": 23.042063,
+          "matched_signals": [
+            "calories",
+            "ham",
+            "slice"
+          ]
+        },
+        {
+          "document_id": "99393",
+          "score": 18.873606,
+          "matched_signals": [
+            "calories",
+            "many",
+            "many_calories"
+          ]
+        },
+        {
+          "document_id": "97835",
+          "score": 18.873606,
+          "matched_signals": [
+            "calories",
+            "many",
+            "many_calories"
+          ]
+        },
+        {
+          "document_id": "97190",
+          "score": 18.873606,
+          "matched_signals": [
+            "calories",
+            "many",
+            "many_calories"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "740876",
+      "query": "what is donald's trump's iq",
+      "positive_ids": [
+        "45888"
+      ],
+      "rank": 3,
+      "difficulty": "medium",
+      "candidate_count": 326,
+      "latency_ms": 0.9251,
+      "top_results": [
+        {
+          "document_id": "45886",
+          "score": 42.546364,
+          "matched_signals": [
+            "donald",
+            "donald_trump",
+            "iq",
+            "trump",
+            "trump_iq"
+          ]
+        },
+        {
+          "document_id": "45890",
+          "score": 30.726576,
+          "matched_signals": [
+            "donald",
+            "donald_trump",
+            "iq",
+            "trump"
+          ]
+        },
+        {
+          "document_id": "45888",
+          "score": 30.726576,
+          "matched_signals": [
+            "donald",
+            "donald_trump",
+            "iq",
+            "trump"
+          ]
+        },
+        {
+          "document_id": "45882",
+          "score": 30.726576,
+          "matched_signals": [
+            "donald",
+            "donald_trump",
+            "iq",
+            "trump"
+          ]
+        },
+        {
+          "document_id": "89634",
+          "score": 21.927212,
+          "matched_signals": [
+            "donald",
+            "donald_trump",
+            "trump"
+          ]
+        },
+        {
+          "document_id": "86149",
+          "score": 21.927212,
+          "matched_signals": [
+            "donald",
+            "donald_trump",
+            "trump"
+          ]
+        },
+        {
+          "document_id": "85411",
+          "score": 21.927212,
+          "matched_signals": [
+            "donald",
+            "donald_trump",
+            "trump"
+          ]
+        },
+        {
+          "document_id": "85410",
+          "score": 21.927212,
+          "matched_signals": [
+            "donald",
+            "donald_trump",
+            "trump"
+          ]
+        },
+        {
+          "document_id": "85408",
+          "score": 21.927212,
+          "matched_signals": [
+            "donald",
+            "donald_trump",
+            "trump"
+          ]
+        },
+        {
+          "document_id": "85406",
+          "score": 21.927212,
+          "matched_signals": [
+            "donald",
+            "donald_trump",
+            "trump"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "420304",
+      "query": "is panama city beach on eastern time",
+      "positive_ids": [
+        "20498"
+      ],
+      "rank": 4,
+      "difficulty": "medium",
+      "candidate_count": 9763,
+      "latency_ms": 32.453,
+      "top_results": [
+        {
+          "document_id": "20500",
+          "score": 44.026579,
+          "matched_signals": [
+            "beach",
+            "city",
+            "city_beach",
+            "panama",
+            "panama_city",
+            "time"
+          ]
+        },
+        {
+          "document_id": "20496",
+          "score": 44.026579,
+          "matched_signals": [
+            "beach",
+            "city",
+            "city_beach",
+            "panama",
+            "panama_city",
+            "time"
+          ]
+        },
+        {
+          "document_id": "20502",
+          "score": 32.631627,
+          "matched_signals": [
+            "city",
+            "eastern",
+            "panama",
+            "panama_city",
+            "time"
+          ]
+        },
+        {
+          "document_id": "20498",
+          "score": 32.631627,
+          "matched_signals": [
+            "city",
+            "eastern",
+            "panama",
+            "panama_city",
+            "time"
+          ]
+        },
+        {
+          "document_id": "20494",
+          "score": 32.612255,
+          "matched_signals": [
+            "beach",
+            "city",
+            "panama",
+            "panama_city",
+            "time"
+          ]
+        },
+        {
+          "document_id": "20499",
+          "score": 30.011908,
+          "matched_signals": [
+            "beach",
+            "city",
+            "eastern",
+            "eastern_time",
+            "time"
+          ]
+        },
+        {
+          "document_id": "82071",
+          "score": 26.132406,
+          "matched_signals": [
+            "city",
+            "panama",
+            "panama_city",
+            "time"
+          ]
+        },
+        {
+          "document_id": "82067",
+          "score": 26.132406,
+          "matched_signals": [
+            "city",
+            "panama",
+            "panama_city",
+            "time"
+          ]
+        },
+        {
+          "document_id": "82066",
+          "score": 26.132406,
+          "matched_signals": [
+            "city",
+            "panama",
+            "panama_city",
+            "time"
+          ]
+        },
+        {
+          "document_id": "20501",
+          "score": 26.132406,
+          "matched_signals": [
+            "city",
+            "panama",
+            "panama_city",
+            "time"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "863623",
+      "query": "what is wrong if your ear keeps popping",
+      "positive_ids": [
+        "50758"
+      ],
+      "rank": 2,
+      "difficulty": "medium",
+      "candidate_count": 772,
+      "latency_ms": 1.8814,
+      "top_results": [
+        {
+          "document_id": "80268",
+          "score": 15.621775,
+          "matched_signals": [
+            "ear",
+            "popping"
+          ]
+        },
+        {
+          "document_id": "50758",
+          "score": 15.621775,
+          "matched_signals": [
+            "ear",
+            "popping"
+          ]
+        },
+        {
+          "document_id": "50756",
+          "score": 15.621775,
+          "matched_signals": [
+            "ear",
+            "popping"
+          ]
+        },
+        {
+          "document_id": "50755",
+          "score": 15.621775,
+          "matched_signals": [
+            "ear",
+            "popping"
+          ]
+        },
+        {
+          "document_id": "50753",
+          "score": 15.621775,
+          "matched_signals": [
+            "ear",
+            "popping"
+          ]
+        },
+        {
+          "document_id": "50752",
+          "score": 15.621775,
+          "matched_signals": [
+            "ear",
+            "popping"
+          ]
+        },
+        {
+          "document_id": "14455",
+          "score": 13.783495,
+          "matched_signals": [
+            "ear",
+            "wrong"
+          ]
+        },
+        {
+          "document_id": "96987",
+          "score": 8.775266,
+          "matched_signals": [
+            "popping"
+          ]
+        },
+        {
+          "document_id": "88344",
+          "score": 8.775266,
+          "matched_signals": [
+            "popping"
+          ]
+        },
+        {
+          "document_id": "86582",
+          "score": 8.775266,
+          "matched_signals": [
+            "popping"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "1063709",
+      "query": "why did the united states drop the atomic bomb on japan",
+      "positive_ids": [
+        "71485"
+      ],
+      "rank": 1,
+      "difficulty": "easy",
+      "candidate_count": 4779,
+      "latency_ms": 14.5345,
+      "top_results": [
+        {
+          "document_id": "71485",
+          "score": 60.388369,
+          "matched_signals": [
+            "atomic",
+            "atomic_bomb",
+            "bomb",
+            "drop",
+            "drop_atomic",
+            "japan",
+            "states",
+            "united"
+          ]
+        },
+        {
+          "document_id": "71487",
+          "score": 35.14372,
+          "matched_signals": [
+            "atomic",
+            "atomic_bomb",
+            "bomb",
+            "states",
+            "united"
+          ]
+        },
+        {
+          "document_id": "71494",
+          "score": 33.202639,
+          "matched_signals": [
+            "atomic",
+            "atomic_bomb",
+            "bomb",
+            "japan"
+          ]
+        },
+        {
+          "document_id": "71492",
+          "score": 33.202639,
+          "matched_signals": [
+            "atomic",
+            "atomic_bomb",
+            "bomb",
+            "japan"
+          ]
+        },
+        {
+          "document_id": "71491",
+          "score": 33.202639,
+          "matched_signals": [
+            "atomic",
+            "atomic_bomb",
+            "bomb",
+            "japan"
+          ]
+        },
+        {
+          "document_id": "71490",
+          "score": 33.202639,
+          "matched_signals": [
+            "atomic",
+            "atomic_bomb",
+            "bomb",
+            "japan"
+          ]
+        },
+        {
+          "document_id": "71493",
+          "score": 31.951872,
+          "matched_signals": [
+            "atomic",
+            "bomb",
+            "japan",
+            "states",
+            "united"
+          ]
+        },
+        {
+          "document_id": "71486",
+          "score": 28.028631,
+          "matched_signals": [
+            "atomic",
+            "japan",
+            "states",
+            "united",
+            "united_states"
+          ]
+        },
+        {
+          "document_id": "94673",
+          "score": 26.366458,
+          "matched_signals": [
+            "atomic",
+            "atomic_bomb",
+            "bomb"
+          ]
+        },
+        {
+          "document_id": "5",
+          "score": 26.366458,
+          "matched_signals": [
+            "atomic",
+            "atomic_bomb",
+            "bomb"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "884533",
+      "query": "what part is the sigmoid colon",
+      "positive_ids": [
+        "31718"
+      ],
+      "rank": 2,
+      "difficulty": "medium",
+      "candidate_count": 3328,
+      "latency_ms": 8.9157,
+      "top_results": [
+        {
+          "document_id": "31721",
+          "score": 31.829584,
+          "matched_signals": [
+            "colon",
+            "part",
+            "sigmoid",
+            "sigmoid_colon"
+          ]
+        },
+        {
+          "document_id": "31718",
+          "score": 31.829584,
+          "matched_signals": [
+            "colon",
+            "part",
+            "sigmoid",
+            "sigmoid_colon"
+          ]
+        },
+        {
+          "document_id": "31717",
+          "score": 31.829584,
+          "matched_signals": [
+            "colon",
+            "part",
+            "sigmoid",
+            "sigmoid_colon"
+          ]
+        },
+        {
+          "document_id": "31716",
+          "score": 31.829584,
+          "matched_signals": [
+            "colon",
+            "part",
+            "sigmoid",
+            "sigmoid_colon"
+          ]
+        },
+        {
+          "document_id": "31713",
+          "score": 31.829584,
+          "matched_signals": [
+            "colon",
+            "part",
+            "sigmoid",
+            "sigmoid_colon"
+          ]
+        },
+        {
+          "document_id": "82662",
+          "score": 27.382228,
+          "matched_signals": [
+            "colon",
+            "sigmoid",
+            "sigmoid_colon"
+          ]
+        },
+        {
+          "document_id": "31715",
+          "score": 27.382228,
+          "matched_signals": [
+            "colon",
+            "sigmoid",
+            "sigmoid_colon"
+          ]
+        },
+        {
+          "document_id": "25368",
+          "score": 27.382228,
+          "matched_signals": [
+            "colon",
+            "sigmoid",
+            "sigmoid_colon"
+          ]
+        },
+        {
+          "document_id": "11975",
+          "score": 27.382228,
+          "matched_signals": [
+            "colon",
+            "sigmoid",
+            "sigmoid_colon"
+          ]
+        },
+        {
+          "document_id": "82658",
+          "score": 21.619234,
+          "matched_signals": [
+            "colon",
+            "part",
+            "sigmoid"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "927989",
+      "query": "what year was metallica release their first album",
+      "positive_ids": [
+        "60175"
+      ],
+      "rank": 1,
+      "difficulty": "easy",
+      "candidate_count": 11593,
+      "latency_ms": 38.2786,
+      "top_results": [
+        {
+          "document_id": "60175",
+          "score": 35.039327,
+          "matched_signals": [
+            "album",
+            "first",
+            "first_album",
+            "metallica",
+            "release"
+          ]
+        },
+        {
+          "document_id": "60174",
+          "score": 28.95288,
+          "matched_signals": [
+            "album",
+            "first",
+            "first_album",
+            "metallica"
+          ]
+        },
+        {
+          "document_id": "60172",
+          "score": 28.95288,
+          "matched_signals": [
+            "album",
+            "first",
+            "first_album",
+            "metallica"
+          ]
+        },
+        {
+          "document_id": "60168",
+          "score": 28.95288,
+          "matched_signals": [
+            "album",
+            "first",
+            "first_album",
+            "metallica"
+          ]
+        },
+        {
+          "document_id": "33237",
+          "score": 28.95288,
+          "matched_signals": [
+            "album",
+            "first",
+            "first_album",
+            "metallica"
+          ]
+        },
+        {
+          "document_id": "93827",
+          "score": 25.704445,
+          "matched_signals": [
+            "album",
+            "first",
+            "first_album",
+            "release"
+          ]
+        },
+        {
+          "document_id": "83051",
+          "score": 25.704445,
+          "matched_signals": [
+            "album",
+            "first",
+            "first_album",
+            "release"
+          ]
+        },
+        {
+          "document_id": "11148",
+          "score": 25.704445,
+          "matched_signals": [
+            "album",
+            "first",
+            "first_album",
+            "release"
+          ]
+        },
+        {
+          "document_id": "33696",
+          "score": 25.281307,
+          "matched_signals": [
+            "first",
+            "release",
+            "release_first",
+            "year"
+          ]
+        },
+        {
+          "document_id": "99619",
+          "score": 23.679666,
+          "matched_signals": [
+            "album",
+            "first",
+            "first_album",
+            "year"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "616415",
+      "query": "what date was the revolutionary war",
+      "positive_ids": [
+        "58347"
+      ],
+      "rank": 8,
+      "difficulty": "hard",
+      "candidate_count": 2290,
+      "latency_ms": 6.0883,
+      "top_results": [
+        {
+          "document_id": "74289",
+          "score": 22.815433,
+          "matched_signals": [
+            "revolutionary",
+            "revolutionary_war",
+            "war"
+          ]
+        },
+        {
+          "document_id": "67962",
+          "score": 22.815433,
+          "matched_signals": [
+            "revolutionary",
+            "revolutionary_war",
+            "war"
+          ]
+        },
+        {
+          "document_id": "67876",
+          "score": 22.815433,
+          "matched_signals": [
+            "revolutionary",
+            "revolutionary_war",
+            "war"
+          ]
+        },
+        {
+          "document_id": "6613",
+          "score": 22.815433,
+          "matched_signals": [
+            "revolutionary",
+            "revolutionary_war",
+            "war"
+          ]
+        },
+        {
+          "document_id": "58351",
+          "score": 22.815433,
+          "matched_signals": [
+            "revolutionary",
+            "revolutionary_war",
+            "war"
+          ]
+        },
+        {
+          "document_id": "58350",
+          "score": 22.815433,
+          "matched_signals": [
+            "revolutionary",
+            "revolutionary_war",
+            "war"
+          ]
+        },
+        {
+          "document_id": "58349",
+          "score": 22.815433,
+          "matched_signals": [
+            "revolutionary",
+            "revolutionary_war",
+            "war"
+          ]
+        },
+        {
+          "document_id": "58347",
+          "score": 22.815433,
+          "matched_signals": [
+            "revolutionary",
+            "revolutionary_war",
+            "war"
+          ]
+        },
+        {
+          "document_id": "58345",
+          "score": 22.815433,
+          "matched_signals": [
+            "revolutionary",
+            "revolutionary_war",
+            "war"
+          ]
+        },
+        {
+          "document_id": "49221",
+          "score": 22.815433,
+          "matched_signals": [
+            "revolutionary",
+            "revolutionary_war",
+            "war"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "1017892",
+      "query": "which president is credited with the inspiration for maxwell's house slogan good to the last drop",
+      "positive_ids": [
+        "5975"
+      ],
+      "rank": 4,
+      "difficulty": "medium",
+      "candidate_count": 7260,
+      "latency_ms": 24.324,
+      "top_results": [
+        {
+          "document_id": "5970",
+          "score": 93.849962,
+          "matched_signals": [
+            "drop",
+            "good",
+            "good_last",
+            "house",
+            "house_slogan",
+            "last",
+            "last_drop",
+            "maxwell",
+            "maxwell_house",
+            "slogan",
+            "slogan_good"
+          ]
+        },
+        {
+          "document_id": "5977",
+          "score": 87.908914,
+          "matched_signals": [
+            "drop",
+            "good",
+            "good_last",
+            "house",
+            "last",
+            "last_drop",
+            "maxwell",
+            "maxwell_house",
+            "president",
+            "slogan",
+            "slogan_good"
+          ]
+        },
+        {
+          "document_id": "5976",
+          "score": 82.435638,
+          "matched_signals": [
+            "drop",
+            "good",
+            "good_last",
+            "house",
+            "house_slogan",
+            "last",
+            "last_drop",
+            "maxwell",
+            "maxwell_house",
+            "slogan"
+          ]
+        },
+        {
+          "document_id": "5975",
+          "score": 76.49459,
+          "matched_signals": [
+            "drop",
+            "good",
+            "good_last",
+            "house",
+            "last",
+            "last_drop",
+            "maxwell",
+            "maxwell_house",
+            "president",
+            "slogan"
+          ]
+        },
+        {
+          "document_id": "5971",
+          "score": 76.49459,
+          "matched_signals": [
+            "drop",
+            "good",
+            "good_last",
+            "house",
+            "last",
+            "last_drop",
+            "maxwell",
+            "maxwell_house",
+            "president",
+            "slogan"
+          ]
+        },
+        {
+          "document_id": "5974",
+          "score": 71.021315,
+          "matched_signals": [
+            "drop",
+            "good",
+            "good_last",
+            "house",
+            "last",
+            "last_drop",
+            "maxwell",
+            "maxwell_house",
+            "slogan"
+          ]
+        },
+        {
+          "document_id": "5969",
+          "score": 71.021315,
+          "matched_signals": [
+            "drop",
+            "good",
+            "good_last",
+            "house",
+            "last",
+            "last_drop",
+            "maxwell",
+            "maxwell_house",
+            "slogan"
+          ]
+        },
+        {
+          "document_id": "39798",
+          "score": 21.708018,
+          "matched_signals": [
+            "drop",
+            "last",
+            "last_drop"
+          ]
+        },
+        {
+          "document_id": "90767",
+          "score": 19.73539,
+          "matched_signals": [
+            "good",
+            "good_last",
+            "last"
+          ]
+        },
+        {
+          "document_id": "83193",
+          "score": 19.73539,
+          "matched_signals": [
+            "good",
+            "good_last",
+            "last"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "330640",
+      "query": "how much will i have at retirement social security",
+      "positive_ids": [
+        "70468"
+      ],
+      "rank": 4,
+      "difficulty": "medium",
+      "candidate_count": 4998,
+      "latency_ms": 15.6195,
+      "top_results": [
+        {
+          "document_id": "98423",
+          "score": 29.164698,
+          "matched_signals": [
+            "much",
+            "retirement",
+            "security",
+            "social",
+            "social_security"
+          ]
+        },
+        {
+          "document_id": "70476",
+          "score": 29.164698,
+          "matched_signals": [
+            "much",
+            "retirement",
+            "security",
+            "social",
+            "social_security"
+          ]
+        },
+        {
+          "document_id": "70469",
+          "score": 29.164698,
+          "matched_signals": [
+            "much",
+            "retirement",
+            "security",
+            "social",
+            "social_security"
+          ]
+        },
+        {
+          "document_id": "70468",
+          "score": 29.164698,
+          "matched_signals": [
+            "much",
+            "retirement",
+            "security",
+            "social",
+            "social_security"
+          ]
+        },
+        {
+          "document_id": "70467",
+          "score": 29.164698,
+          "matched_signals": [
+            "much",
+            "retirement",
+            "security",
+            "social",
+            "social_security"
+          ]
+        },
+        {
+          "document_id": "2725",
+          "score": 29.164698,
+          "matched_signals": [
+            "much",
+            "retirement",
+            "security",
+            "social",
+            "social_security"
+          ]
+        },
+        {
+          "document_id": "98134",
+          "score": 24.691243,
+          "matched_signals": [
+            "retirement",
+            "security",
+            "social",
+            "social_security"
+          ]
+        },
+        {
+          "document_id": "98127",
+          "score": 24.691243,
+          "matched_signals": [
+            "retirement",
+            "security",
+            "social",
+            "social_security"
+          ]
+        },
+        {
+          "document_id": "97671",
+          "score": 24.691243,
+          "matched_signals": [
+            "retirement",
+            "security",
+            "social",
+            "social_security"
+          ]
+        },
+        {
+          "document_id": "97405",
+          "score": 24.691243,
+          "matched_signals": [
+            "retirement",
+            "security",
+            "social",
+            "social_security"
+          ]
+        }
+      ]
+    }
+  ]
+}
