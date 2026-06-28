@@ -17,6 +17,7 @@ import random
 import statistics
 from pathlib import Path
 from collections import defaultdict
+import pickle
 
 from openai import OpenAI
 
@@ -42,12 +43,13 @@ BASE_DIR = Path(__file__).resolve().parent
 
 COLLECTION_PATH = BASE_DIR / "collection.tsv"
 QUERIES_PATH = BASE_DIR / "queries.dev.small.tsv"
+SELECTED_QUERIES_PATH = BASE_DIR / "selected_200_queries.json"
 QRELS_PATH = BASE_DIR / "qrels.dev.small.tsv"
 OUTPUT_DIR = BASE_DIR / "results"
-
+CACHE_DOCS_PATH = BASE_DIR / "cache_docs_50000.pkl"
 #N_VALUES = [100]
 N_VALUES = [100, 500, 1000, 5000]
-NUM_QUERIES = 6980
+
 
 
 SEED = 42
@@ -105,6 +107,11 @@ def load_qrels(path: Path) -> dict[str, list[str]]:
 
     return dict(qrels)
 
+def load_selected_queries(path: Path) -> list[dict]:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    return data["queries"]
 
 def load_required_documents(
     collection_path: Path,
@@ -371,23 +378,59 @@ def evaluate():
     queries = load_queries(QUERIES_PATH)
     qrels = load_qrels(QRELS_PATH)
 
-    selected_qids = list(qrels.keys())[:NUM_QUERIES]
+    selected_queries = load_selected_queries(SELECTED_QUERIES_PATH)
+
+    selected_qids = [
+        str(item["query_id"])
+        for item in selected_queries
+    ]
+
+    selected_query_by_id = {
+        str(item["query_id"]): item
+        for item in selected_queries
+    }
 
     required_pids = set()
 
-    for qid in selected_qids:
-        required_pids.update(qrels[qid])
+    for item in selected_queries:
+        for pid in item["positive_ids"]:
+            required_pids.add(str(pid))
 
    
 
-    print("Carregando documentos necessários da collection...")
-    docs = load_required_documents(
-        collection_path=COLLECTION_PATH,
-        required_pids=required_pids,
-        max_negative_docs=50_000,
-    )
+    if CACHE_DOCS_PATH.exists():
+
+        print("Carregando documentos do cache...")
+
+        with open(CACHE_DOCS_PATH, "rb") as f:
+            docs = pickle.load(f)
+
+    else:
+
+        print("Carregando documentos necessários da collection...")
+
+        docs = load_required_documents(
+            collection_path=COLLECTION_PATH,
+            required_pids=required_pids,
+            max_negative_docs=50_000,
+        )
+
+        print("Salvando cache...")
+
+        CACHE_DOCS_PATH.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        with open(CACHE_DOCS_PATH, "wb") as f:
+            pickle.dump(
+                docs,
+                f,
+                protocol=pickle.HIGHEST_PROTOCOL,
+            )
 
     print(f"Documentos carregados: {len(docs):,}")
+
     print(f"Queries avaliadas: {len(selected_qids):,}")
 
     indexer = MSMarcoIndexer(
@@ -400,9 +443,13 @@ def evaluate():
     for n in N_VALUES:
         print(f"\n===== N = {n} =====")
 
-        for qid in selected_qids:
-            query = queries[qid]
-            positive_ids = set(qrels[qid])
+        for idx, qid in enumerate(selected_qids, start=1):
+            selected_item = selected_query_by_id[qid]
+
+            query = selected_item["query"]
+            positive_ids = set(str(pid) for pid in selected_item["positive_ids"])
+            difficulty = selected_item["difficulty"]
+            sscr_rank = selected_item["rank"]
 
             candidates = build_candidate_pool(
                 qid=qid,
@@ -423,6 +470,8 @@ def evaluate():
             valid_selection = 1 if selected_pid in candidate_ids else 0
             all_rows.append({
                 "query_id": qid,
+                "difficulty": difficulty,
+                "sscr_rank": sscr_rank,
                 "N_agents": n,
                 "metodo": "tradicional",
                 "K": len(candidates),
@@ -459,6 +508,8 @@ def evaluate():
 
             all_rows.append({
                 "query_id": qid,
+                "difficulty": difficulty,
+                "sscr_rank": sscr_rank,
                 "N_agents": n,
                 "metodo": "SSCR_IDF_InvertedIndex",
                 "K": len(sscr_candidates),
@@ -473,6 +524,12 @@ def evaluate():
                 "selected_pid": selected_pid,
                 "positive_ids": list(positive_ids),
             })
+            if idx % 20 == 0 or idx == len(selected_qids):
+                print(
+                    f"[N={n}] "
+                    f"{idx}/{len(selected_qids)} "
+                    f"({idx/len(selected_qids):.1%})"
+                )
 
     summary = summarize_runs(all_rows)
 
