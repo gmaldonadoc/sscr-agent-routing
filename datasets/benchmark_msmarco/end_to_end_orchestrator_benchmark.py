@@ -60,7 +60,6 @@ MODEL = "gpt-4o-mini"
 INPUT_PRICE_PER_1M = 0.15
 OUTPUT_PRICE_PER_1M = 0.60
 
-MAX_CONTEXT_TOKENS = 120_000
 
 
 client = OpenAI()
@@ -256,38 +255,33 @@ def build_prompt(query: str, candidates: list[dict]) -> str:
     )
 
 
-def call_orchestrator(prompt: str) -> tuple[str | None, int, int, float]:
+def call_orchestrator(prompt: str) -> tuple[str | None, int, int, float, str | None]:
     input_tokens = estimate_tokens(prompt)
-
-    if input_tokens > MAX_CONTEXT_TOKENS:
-        return None, input_tokens, 0, 0.0
-
     start = time.perf_counter()
 
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {
-                "role": "user",
-                "content": prompt,
-            }
-        ],
-        temperature=0,
-        response_format={"type": "json_object"},
-    )
-
-    latency_s = time.perf_counter() - start
-
-    content = response.choices[0].message.content
-    output_tokens = estimate_tokens(content)
-
     try:
-        parsed = json.loads(content)
-        selected_pid = str(parsed.get("selected_pid"))
-    except Exception:
-        selected_pid = None
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            response_format={"type": "json_object"},
+        )
 
-    return selected_pid, input_tokens, output_tokens, latency_s
+        latency_s = time.perf_counter() - start
+        content = response.choices[0].message.content
+        output_tokens = estimate_tokens(content)
+
+        try:
+            parsed = json.loads(content)
+            selected_pid = str(parsed.get("selected_pid"))
+        except Exception:
+            selected_pid = None
+
+        return selected_pid, input_tokens, output_tokens, latency_s, None
+
+    except Exception as e:
+        latency_s = time.perf_counter() - start
+        return None, input_tokens, 0, latency_s, str(e)
 
 
 # ============================================================
@@ -343,6 +337,7 @@ def summarize_runs(rows: list[dict]) -> list[dict]:
 
     for (n, method), items in grouped.items():
         latencies = [x["latencia_s"] for x in items]
+        api_success_rates = [x["api_success"] for x in items]
         accuracies = [x["accuracy"] for x in items]
         tokens = [x["tokens_prompt"] for x in items]
         costs = [x["custo_usd"] for x in items]
@@ -352,6 +347,7 @@ def summarize_runs(rows: list[dict]) -> list[dict]:
 
         summary.append({
             "N_agents": n,
+            "Api_success_rate": round(statistics.mean(api_success_rates), 4),
             "Metodo": method,
             "K_mean": round(statistics.mean(ks), 4),
             "K_min": min(ks),
@@ -465,11 +461,13 @@ def evaluate():
 
             prompt = build_prompt(query, candidates)
 
-            selected_pid, in_tok, out_tok, llm_latency = call_orchestrator(prompt)
+            selected_pid, in_tok, out_tok, llm_latency, api_error = call_orchestrator(prompt)
             candidate_ids = {doc["pid"] for doc in candidates}
             valid_selection = 1 if selected_pid in candidate_ids else 0
             all_rows.append({
                 "query_id": qid,
+                "api_error": api_error,
+                "api_success": 1 if api_error is None else 0,
                 "difficulty": difficulty,
                 "sscr_rank": sscr_rank,
                 "N_agents": n,
@@ -501,13 +499,15 @@ def evaluate():
 
             prompt = build_prompt(query, sscr_candidates)
 
-            selected_pid, in_tok, out_tok, llm_latency = call_orchestrator(prompt)
+            selected_pid, in_tok, out_tok, llm_latency, api_error = call_orchestrator(prompt)
 
             sscr_candidate_ids = {doc["pid"] for doc in sscr_candidates}
             valid_selection = 1 if selected_pid in sscr_candidate_ids else 0
 
             all_rows.append({
                 "query_id": qid,
+                "api_error": api_error,
+                "api_success": 1 if api_error is None else 0,
                 "difficulty": difficulty,
                 "sscr_rank": sscr_rank,
                 "N_agents": n,
