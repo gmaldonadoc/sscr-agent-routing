@@ -50,7 +50,7 @@ benchmark_results/
 # =========================
 # MS MARCO
 # =========================
-#collection.tsv
+
 queries.dev.tsv
 queries.dev.small.tsv
 queries.eval.tsv
@@ -95,3 +95,29 @@ datasets/**/*.jsonl
 # =========================
 tmp/
 temp/
+
+# =========================
+# Local MS MARCO artifacts
+# =========================
+/datasets/benchmark_msmarco/cache/
+/datasets/benchmark_msmarco/collection.tsv
+/datasets/benchmark_msmarco/rq3_docs_cache.pkl
+/datasets/benchmark_msmarco/desktop.ini
+
+# =========================
+# Local runtime state
+# =========================
+/utilities/routing/routing_memory.json
+
+# =========================
+# SQLite / serialized caches
+# =========================
+*.sqlite
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+*.pkl
+*.pickle
+
+# Windows metadata
+desktop.ini
