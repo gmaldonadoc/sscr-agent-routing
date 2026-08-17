@@ -1,10 +1,5 @@
-python -m py_compile `
-  datasets\benchmark_msmarco\rq2_retrieval_benchmark.py `
-  utilities\routing\msmarco_indexer.py
-
-
-python .\datasets\benchmark_msmarco\rq2_retrieval_benchmark.py `
-  --max-docs 100000 `
-  --max-queries 100 `
-  --latency-sample 50 `
-  --run-name smoke_rq2_v5
+python datasets/benchmark_msmarco/rq2_retrieval_benchmark.py \
+  --max-docs 100000 \
+  --max-queries 100 \
+  --latency-sample 50 \
+  --run-name smoke_rq2_v5_repeat
