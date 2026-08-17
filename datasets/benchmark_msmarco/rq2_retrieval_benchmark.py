@@ -1,27 +1,33 @@
 """
-RQ2 corrected retrieval benchmark for SSR on MS MARCO Passage Ranking.
+RQ2 retrieval benchmark for SSR on MS MARCO Passage Ranking.
 
-This script adds classical lexical baselines and a component ablation without
-modifying the legacy RQ2 scripts.
+Protocol v3 is designed for the full 8,841,823-passage experiment and the RQ2
+ablation without materializing the complete structural state in Python RAM.
+
+A single persistent SQLite cache is built in batches. During one pass over the
+collection, each passage is tokenized once and used to populate:
+  * a disk-backed document table containing compact structural signals;
+  * a structural FTS5 inverted index (the ISI implementation);
+  * a lexical FTS5 index used by TF-IDF and BM25.
 
 Methods
 -------
 1. TF-IDF (dot product): unigram lexical baseline, score = sum(qtf * dtf * idf).
 2. BM25: SQLite FTS5 BM25 over the same normalized unigram representation.
-3. Structural Overlap + ISI: unweighted SSR structural signals + inverted index.
-4. Structural + IDF (full scan): same IDF score as SSR, but exhaustive scoring;
-   by default this is evaluated on a deterministic latency sample because a
-   full 8.8M x 6,980 exhaustive run is intentionally expensive.
-5. SSR (Structural + IDF + ISI): complete proposed retrieval pipeline.
+3. Structural Overlap + ISI: unweighted structural signals + inverted index.
+4. Structural + IDF (full scan): same structural-IDF scoring as SSR, but every
+   document is visited. By default this is run only on a deterministic sample.
+5. SSR (Structural + IDF + ISI): structural IDF ranking restricted by ISI.
 
-The TF-IDF baseline is intentionally reported as a dot-product TF-IDF baseline
-(no cosine document-length normalization). BM25 provides the standard
-length-normalized sparse lexical baseline.
+Effectiveness is evaluated on the complete eligible query set for TF-IDF, BM25,
+Structural Overlap + ISI, and SSR. The full-scan ablation uses the same score as
+SSR. When its top-k output is verified to be identical to SSR on the deterministic
+sample, the script reports SSR's effectiveness values for the full-scan row and
+marks them as analytically equivalent rather than re-running 8.8M x 6,980 scans.
 
-Offline preprocessing/index construction is measured separately from online
-query latency. All effectiveness metrics use the same qrels and eligible query
-set. Full-scan IDF and SSR use the same scoring function, so their rankings are
-identical; the full-scan variant isolates the computational contribution of ISI.
+Offline index construction is reported separately from online query latency.
+If a validated cache is reused, the original construction time stored in cache
+metadata is retained; it is never replaced by zero.
 """
 
 from __future__ import annotations
@@ -34,6 +40,7 @@ import heapq
 import json
 import math
 import os
+import pickle
 import platform
 import random
 import sqlite3
@@ -44,7 +51,7 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Callable, Iterable, Sequence
 
 # ---------------------------------------------------------------------------
 # Project path setup
@@ -57,10 +64,13 @@ if str(ROOT_DIR) not in sys.path:
 
 from utilities.routing.msmarco_indexer import MSMarcoIndexer  # noqa: E402
 
+# ---------------------------------------------------------------------------
+# Defaults / protocol constants
+# ---------------------------------------------------------------------------
+PROTOCOL_VERSION = 3
+INDEX_SCHEMA_VERSION = 1
+EXTRACTOR_VERSION = "msmarco_structural_v1_unigrams_bigrams_64"
 
-# ---------------------------------------------------------------------------
-# Defaults
-# ---------------------------------------------------------------------------
 DEFAULT_COLLECTION = BASE_DIR / "collection.tsv"
 DEFAULT_QUERIES = BASE_DIR / "queries.dev.small.tsv"
 DEFAULT_QRELS = BASE_DIR / "qrels.dev.small.tsv"
@@ -72,6 +82,9 @@ OFFICIAL_MAX_QUERIES = 6_980
 DEFAULT_TOP_K = 10
 DEFAULT_LATENCY_SAMPLE = 200
 DEFAULT_SEED = 42
+DEFAULT_INDEX_BATCH_SIZE = 25_000
+DEFAULT_FULLSCAN_FETCH_SIZE = 10_000
+DEFAULT_SQLITE_CACHE_MB = 512
 
 METHOD_TFIDF = "TF-IDF (dot product)"
 METHOD_BM25 = "BM25"
@@ -120,6 +133,26 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def quick_file_fingerprint(path: Path, sample_bytes: int = 1024 * 1024) -> dict:
+    """
+    Fast collection identity check without hashing the entire multi-GB corpus.
+    Uses file size plus SHA-256 over the first and last 1 MiB.
+    """
+    st = path.stat()
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        first = f.read(sample_bytes)
+        h.update(first)
+        if st.st_size > sample_bytes:
+            f.seek(max(0, st.st_size - sample_bytes))
+            h.update(f.read(sample_bytes))
+    h.update(str(st.st_size).encode("ascii"))
+    return {
+        "size_bytes": st.st_size,
+        "first_last_sha256": h.hexdigest(),
+    }
+
+
 def percentile(values: Sequence[float], p: float) -> float | None:
     if not values:
         return None
@@ -151,7 +184,7 @@ def parse_methods(value: str) -> list[str]:
         "fullscan": METHOD_FULLSCAN,
         "ssr": METHOD_SSR,
     }
-    result = []
+    result: list[str] = []
     for token in value.split(","):
         key = token.strip().lower()
         if not key:
@@ -164,6 +197,19 @@ def parse_methods(value: str) -> list[str]:
     if not result:
         raise argparse.ArgumentTypeError("At least one method is required.")
     return result
+
+
+def db_size_bytes(path: Path) -> int:
+    total = path.stat().st_size if path.exists() else 0
+    for suffix in ("-wal", "-shm"):
+        p = Path(str(path) + suffix)
+        if p.exists():
+            total += p.stat().st_size
+    return total
+
+
+def format_gib(n: int) -> str:
+    return f"{n / (1024 ** 3):.2f} GiB"
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +241,12 @@ def load_qrels(path: Path) -> dict[str, list[str]]:
     return dict(qrels)
 
 
-def iter_collection(path: Path, max_docs: int | None) -> Iterable[dict[str, str]]:
+def iter_collection(
+    path: Path,
+    max_docs: int | None,
+    start_after: int = 0,
+) -> Iterable[dict[str, str]]:
+    """Yield valid collection rows, optionally skipping already-indexed rows."""
     with path.open("r", encoding="utf-8") as f:
         reader = csv.reader(f, delimiter="\t")
         accepted = 0
@@ -205,25 +256,26 @@ def iter_collection(path: Path, max_docs: int | None) -> Iterable[dict[str, str]
             if max_docs is not None and accepted >= max_docs:
                 break
             accepted += 1
-            yield {"id": str(row[0]), "text": row[1]}
+            if accepted <= start_after:
+                continue
+            yield {"id": str(row[0]), "text": row[1], "ordinal": accepted}
 
 
 def build_gold(
     queries: dict[str, str],
     qrels: dict[str, list[str]],
-    valid_doc_ids: set[str] | None,
     max_queries: int | None,
+    doc_exists: Callable[[str], bool] | None = None,
 ) -> list[GoldQuery]:
     gold: list[GoldQuery] = []
     for qid, positives in qrels.items():
         query = queries.get(qid)
         if query is None:
             continue
-        valid_positives = (
-            list(positives)
-            if valid_doc_ids is None
-            else [pid for pid in positives if pid in valid_doc_ids]
-        )
+        if doc_exists is None:
+            valid_positives = list(positives)
+        else:
+            valid_positives = [pid for pid in positives if doc_exists(pid)]
         if not valid_positives:
             continue
         gold.append(GoldQuery(qid, query, valid_positives))
@@ -298,131 +350,660 @@ def summarize_method(
     )
 
 
+def copy_effectiveness(source: EvalSummary, target: EvalSummary, total_queries: int) -> None:
+    target.effectiveness_queries = total_queries
+    target.recall_at_1 = source.recall_at_1
+    target.recall_at_3 = source.recall_at_3
+    target.recall_at_5 = source.recall_at_5
+    target.recall_at_10 = source.recall_at_10
+    target.mrr_at_10 = source.mrr_at_10
+
+
 # ---------------------------------------------------------------------------
-# Structural variants
+# Unified disk-backed RQ2 index
 # ---------------------------------------------------------------------------
-def build_structural_state(
+def unified_index_paths(cache_dir: Path, max_docs: int | None) -> tuple[Path, Path]:
+    tag = "all" if max_docs is None else str(max_docs)
+    return (
+        cache_dir / f"rq2_unified_{tag}.sqlite3",
+        cache_dir / f"rq2_unified_{tag}.meta.json",
+    )
+
+
+def unified_cache_signature(collection_path: Path, max_docs: int | None) -> dict:
+    return {
+        "schema_version": INDEX_SCHEMA_VERSION,
+        "collection_fingerprint": quick_file_fingerprint(collection_path),
+        "max_docs": max_docs,
+        "extractor_version": EXTRACTOR_VERSION,
+        "max_signals_per_document": 64,
+        "min_token_len": 2,
+        "idf_formula": "log((N+1)/(df+1)) + 1",
+        "structural_tokenizer": "lowercase [a-z0-9]+, min_len=2, built-in stopwords, unigrams+bigrams",
+        "lexical_representation": "same normalized unigrams with term multiplicity preserved",
+    }
+
+
+def ensure_fts5(con: sqlite3.Connection) -> None:
+    try:
+        con.execute("CREATE VIRTUAL TABLE IF NOT EXISTS __fts5_test USING fts5(x)")
+        con.execute("DROP TABLE IF EXISTS __fts5_test")
+    except sqlite3.OperationalError as exc:
+        raise RuntimeError(
+            "This Python/SQLite build does not provide FTS5, required by RQ2."
+        ) from exc
+
+
+def configure_build_connection(
+    con: sqlite3.Connection,
+    cache_mb: int,
+    unsafe_fast_build: bool,
+) -> None:
+    ensure_fts5(con)
+    if unsafe_fast_build:
+        con.execute("PRAGMA journal_mode=OFF")
+        con.execute("PRAGMA synchronous=OFF")
+    else:
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA synchronous=NORMAL")
+        con.execute("PRAGMA wal_autocheckpoint=10000")
+    con.execute("PRAGMA temp_store=MEMORY")
+    con.execute(f"PRAGMA cache_size=-{max(64, cache_mb) * 1024}")
+    con.execute("PRAGMA mmap_size=1073741824")
+
+
+def configure_query_connection(con: sqlite3.Connection, cache_mb: int) -> None:
+    con.execute("PRAGMA query_only=ON")
+    con.execute("PRAGMA temp_store=MEMORY")
+    con.execute(f"PRAGMA cache_size=-{max(64, cache_mb) * 1024}")
+    con.execute("PRAGMA mmap_size=2147483648")
+
+
+def create_unified_schema(con: sqlite3.Connection) -> None:
+    con.execute(
+        "CREATE TABLE IF NOT EXISTS docs("
+        "rowid INTEGER PRIMARY KEY, "
+        "pid TEXT NOT NULL UNIQUE, "
+        "signals TEXT NOT NULL)"
+    )
+    # Structural signals are unique per document. Underscore must remain part of
+    # a token so a bigram such as 'reserve_bank' is one structural signal.
+    con.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS structural_fts USING fts5("
+        "signals, content='', columnsize=0, "
+        "tokenize=\"unicode61 remove_diacritics 0 tokenchars '_'\")"
+    )
+    # Lexical FTS is contentless but keeps document-size information required by
+    # BM25. Duplicate unigrams are preserved, which also provides dtf for TF-IDF.
+    con.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS lexical_fts USING fts5("
+        "terms, content='', tokenize='unicode61 remove_diacritics 0')"
+    )
+    con.commit()
+
+
+def fresh_timing_dict() -> dict[str, float]:
+    return {
+        "tokenization_ms": 0.0,
+        "signal_extraction_ms": 0.0,
+        "docs_insert_ms": 0.0,
+        "structural_fts_insert_ms": 0.0,
+        "lexical_fts_insert_ms": 0.0,
+        "commit_ms": 0.0,
+        "structural_optimize_ms": 0.0,
+        "lexical_optimize_ms": 0.0,
+        "vocab_creation_ms": 0.0,
+        "total_wall_ms": 0.0,
+    }
+
+
+def add_timing(target: dict[str, float], key: str, delta_ms: float) -> None:
+    target[key] = float(target.get(key, 0.0)) + float(delta_ms)
+
+
+def write_index_meta(meta_path: Path, payload: dict) -> None:
+    tmp = meta_path.with_suffix(meta_path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    os.replace(tmp, meta_path)
+
+
+def insert_prepared_batch(
+    con: sqlite3.Connection,
+    prepared: list[tuple[int, str, str, str]],
+    timings: dict[str, float],
+) -> None:
+    if not prepared:
+        return
+
+    t = time.perf_counter()
+    con.executemany(
+        "INSERT INTO docs(rowid, pid, signals) VALUES (?, ?, ?)",
+        ((rowid, pid, signals) for rowid, pid, signals, _terms in prepared),
+    )
+    add_timing(timings, "docs_insert_ms", (time.perf_counter() - t) * 1000.0)
+
+    t = time.perf_counter()
+    con.executemany(
+        "INSERT INTO structural_fts(rowid, signals) VALUES (?, ?)",
+        ((rowid, signals) for rowid, _pid, signals, _terms in prepared),
+    )
+    add_timing(timings, "structural_fts_insert_ms", (time.perf_counter() - t) * 1000.0)
+
+    t = time.perf_counter()
+    con.executemany(
+        "INSERT INTO lexical_fts(rowid, terms) VALUES (?, ?)",
+        ((rowid, terms) for rowid, _pid, _signals, terms in prepared),
+    )
+    add_timing(timings, "lexical_fts_insert_ms", (time.perf_counter() - t) * 1000.0)
+
+    t = time.perf_counter()
+    con.commit()
+    add_timing(timings, "commit_ms", (time.perf_counter() - t) * 1000.0)
+
+
+def prepare_raw_batch(
+    raw_batch: list[tuple[int, str, str]],
+    indexer: MSMarcoIndexer,
+    timings: dict[str, float],
+) -> list[tuple[int, str, str, str]]:
+    t = time.perf_counter()
+    tokenized: list[tuple[int, str, list[str]]] = [
+        (rowid, pid, indexer.tokenize(text)) for rowid, pid, text in raw_batch
+    ]
+    add_timing(timings, "tokenization_ms", (time.perf_counter() - t) * 1000.0)
+
+    t = time.perf_counter()
+    prepared = [
+        (
+            rowid,
+            pid,
+            " ".join(sorted(indexer.extract_signals_from_tokens(tokens))),
+            " ".join(tokens),
+        )
+        for rowid, pid, tokens in tokenized
+    ]
+    add_timing(timings, "signal_extraction_ms", (time.perf_counter() - t) * 1000.0)
+    return prepared
+
+
+def finalize_unified_index(
+    con: sqlite3.Connection,
+    timings: dict[str, float],
+    unsafe_fast_build: bool,
+) -> None:
+    print("Optimizing structural FTS5 index...")
+    t = time.perf_counter()
+    con.execute("INSERT INTO structural_fts(structural_fts) VALUES ('optimize')")
+    con.commit()
+    add_timing(timings, "structural_optimize_ms", (time.perf_counter() - t) * 1000.0)
+
+    print("Optimizing lexical FTS5 index...")
+    t = time.perf_counter()
+    con.execute("INSERT INTO lexical_fts(lexical_fts) VALUES ('optimize')")
+    con.commit()
+    add_timing(timings, "lexical_optimize_ms", (time.perf_counter() - t) * 1000.0)
+
+    print("Creating FTS5 vocabulary views...")
+    t = time.perf_counter()
+    for name in ("struct_vocab_row", "struct_vocab_instance", "lex_vocab_row", "lex_vocab_instance"):
+        con.execute(f"DROP TABLE IF EXISTS {name}")
+    con.execute("CREATE VIRTUAL TABLE struct_vocab_row USING fts5vocab(structural_fts, 'row')")
+    con.execute("CREATE VIRTUAL TABLE struct_vocab_instance USING fts5vocab(structural_fts, 'instance')")
+    con.execute("CREATE VIRTUAL TABLE lex_vocab_row USING fts5vocab(lexical_fts, 'row')")
+    con.execute("CREATE VIRTUAL TABLE lex_vocab_instance USING fts5vocab(lexical_fts, 'instance')")
+    con.commit()
+    add_timing(timings, "vocab_creation_ms", (time.perf_counter() - t) * 1000.0)
+
+    if not unsafe_fast_build:
+        try:
+            con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except sqlite3.OperationalError:
+            pass
+
+
+def build_index_from_collection(
+    con: sqlite3.Connection,
+    db_path: Path,
+    meta_path: Path,
+    signature: dict,
     collection_path: Path,
     max_docs: int | None,
+    batch_size: int,
     log_interval: int,
-):
+    unsafe_fast_build: bool,
+    existing_meta: dict | None,
+) -> dict:
     indexer = MSMarcoIndexer(max_signals_per_document=64, min_token_len=2)
-    features = {}
-    valid_doc_ids: set[str] = set()
+    timings = dict((existing_meta or {}).get("offline_timings_ms") or fresh_timing_dict())
+    for key, value in fresh_timing_dict().items():
+        timings.setdefault(key, value)
 
-    start_features = time.perf_counter()
-    for i, doc in enumerate(iter_collection(collection_path, max_docs), start=1):
-        feature = indexer.index_document(doc)
-        pid = feature.agent_name
-        features[pid] = feature
-        valid_doc_ids.add(pid)
-        if log_interval and i % log_interval == 0:
-            elapsed = time.perf_counter() - start_features
-            rate = i / elapsed if elapsed else 0.0
-            print(f"[STRUCTURAL FEATURES] {i:,} docs | {rate:,.0f} docs/s")
-    feature_time_ms = (time.perf_counter() - start_features) * 1000.0
+    processed = int(con.execute("SELECT COUNT(*) FROM docs").fetchone()[0])
+    if processed:
+        print(f"Resuming unified index at document {processed + 1:,}.")
 
-    n_docs = len(features)
-    print("Computing structural IDF...")
-    start_idf = time.perf_counter()
-    signal_df: dict[str, int] = defaultdict(int)
-    for feature in features.values():
-        for signal in feature.graph_signals:
-            signal_df[signal] += 1
-    signal_idf = {
-        signal: math.log((n_docs + 1) / (df + 1)) + 1.0
-        for signal, df in signal_df.items()
+    session_start = time.perf_counter()
+    raw_batch: list[tuple[int, str, str]] = []
+    last_report = processed
+
+    def flush_batch() -> None:
+        nonlocal raw_batch, processed, last_report
+        if not raw_batch:
+            return
+        prepared = prepare_raw_batch(raw_batch, indexer, timings)
+        insert_prepared_batch(con, prepared, timings)
+        processed += len(raw_batch)
+        raw_batch.clear()
+        del prepared
+        gc.collect()
+
+        meta = {
+            **signature,
+            "complete": False,
+            "build_source": "collection.tsv",
+            "collection_path": str(collection_path.resolve()),
+            "document_count": processed,
+            "offline_timings_ms": timings,
+            "updated_utc": datetime.now(timezone.utc).isoformat(),
+        }
+        write_index_meta(meta_path, meta)
+
+        if log_interval and (processed - last_report >= log_interval):
+            elapsed = time.perf_counter() - session_start
+            session_docs = max(1, processed - int((existing_meta or {}).get("document_count", 0)))
+            rate = session_docs / elapsed if elapsed else 0.0
+            print(
+                f"[UNIFIED INDEX] {processed:,} docs | {rate:,.0f} docs/s | "
+                f"DB={format_gib(db_size_bytes(db_path))}"
+            )
+            last_report = processed
+
+    for doc in iter_collection(collection_path, max_docs, start_after=processed):
+        rowid = int(doc["ordinal"])
+        raw_batch.append((rowid, str(doc["id"]), str(doc["text"])))
+        if len(raw_batch) >= batch_size:
+            flush_batch()
+    flush_batch()
+
+    finalize_unified_index(con, timings, unsafe_fast_build)
+    add_timing(timings, "total_wall_ms", (time.perf_counter() - session_start) * 1000.0)
+
+    n_docs = int(con.execute("SELECT COUNT(*) FROM docs").fetchone()[0])
+    n_signals = int(con.execute("SELECT COUNT(*) FROM struct_vocab_row").fetchone()[0])
+    meta = {
+        **signature,
+        "complete": True,
+        "build_source": "collection.tsv",
+        "collection_path": str(collection_path.resolve()),
+        "document_count": n_docs,
+        "unique_structural_signals": n_signals,
+        "offline_timings_ms": timings,
+        "idf_storage": "not materialized; document frequency read on demand from struct_vocab_row",
+        "created_or_completed_utc": datetime.now(timezone.utc).isoformat(),
+        "database_size_bytes": db_size_bytes(db_path),
     }
-    idf_time_ms = (time.perf_counter() - start_idf) * 1000.0
+    write_index_meta(meta_path, meta)
+    return meta
 
-    print("Building structural Inverted Signal Index...")
-    start_isi = time.perf_counter()
-    signal_index: dict[str, set[str]] = defaultdict(set)
-    for pid, feature in features.items():
-        for signal in feature.graph_signals:
-            signal_index[signal].add(pid)
-    isi_time_ms = (time.perf_counter() - start_isi) * 1000.0
 
-    timings = {
-        "feature_extraction_ms": feature_time_ms,
-        "idf_computation_ms": idf_time_ms,
-        "isi_construction_ms": isi_time_ms,
-        "total_ms": feature_time_ms + idf_time_ms + isi_time_ms,
+def build_index_from_legacy_pickle(
+    con: sqlite3.Connection,
+    db_path: Path,
+    meta_path: Path,
+    signature: dict,
+    legacy_features_path: Path,
+    max_docs: int | None,
+    batch_size: int,
+    log_interval: int,
+    unsafe_fast_build: bool,
+) -> dict:
+    """
+    One-time migration path for the old cache_features_full.pkl.
+
+    pickle cannot be streamed: the complete legacy dictionary is deserialized in
+    RAM. Use this only on a machine with enough memory. The 1.2-GB legacy IDF
+    pickle is not required because the unified FTS index derives exact document
+    frequencies directly from structural postings.
+    """
+    print(f"Loading legacy feature pickle into RAM: {legacy_features_path}")
+    print("WARNING: this requires enough RAM for the complete deserialized object graph.")
+    load_start = time.perf_counter()
+    with legacy_features_path.open("rb") as f:
+        features = pickle.load(f)
+    legacy_load_ms = (time.perf_counter() - load_start) * 1000.0
+    if not hasattr(features, "items"):
+        raise TypeError("Legacy feature pickle must contain a mapping keyed by document ID.")
+
+    indexer = MSMarcoIndexer(max_signals_per_document=64, min_token_len=2)
+    timings = fresh_timing_dict()
+    timings["legacy_pickle_load_ms"] = legacy_load_ms
+    session_start = time.perf_counter()
+    prepared: list[tuple[int, str, str, str]] = []
+    processed = 0
+
+    for rowid, (pid_key, feature) in enumerate(features.items(), start=1):
+        if max_docs is not None and processed >= max_docs:
+            break
+        pid = str(getattr(feature, "agent_name", pid_key))
+        source_text = str(getattr(feature, "source_text", ""))
+        graph_signals = set(getattr(feature, "graph_signals", set()))
+
+        t = time.perf_counter()
+        tokens = indexer.tokenize(source_text)
+        add_timing(timings, "tokenization_ms", (time.perf_counter() - t) * 1000.0)
+
+        prepared.append((rowid, pid, " ".join(sorted(graph_signals)), " ".join(tokens)))
+        processed += 1
+        if len(prepared) >= batch_size:
+            insert_prepared_batch(con, prepared, timings)
+            prepared.clear()
+            gc.collect()
+            if log_interval and processed % log_interval < batch_size:
+                print(
+                    f"[LEGACY MIGRATION] {processed:,} docs | "
+                    f"DB={format_gib(db_size_bytes(db_path))}"
+                )
+                meta = {
+                    **signature,
+                    "complete": False,
+                    "build_source": "legacy_feature_pickle",
+                    "legacy_features_path": str(legacy_features_path.resolve()),
+                    "document_count": processed,
+                    "offline_timings_ms": timings,
+                    "updated_utc": datetime.now(timezone.utc).isoformat(),
+                }
+                write_index_meta(meta_path, meta)
+
+    if prepared:
+        insert_prepared_batch(con, prepared, timings)
+        prepared.clear()
+
+    del features
+    gc.collect()
+
+    finalize_unified_index(con, timings, unsafe_fast_build)
+    add_timing(timings, "total_wall_ms", (time.perf_counter() - session_start) * 1000.0)
+    n_docs = int(con.execute("SELECT COUNT(*) FROM docs").fetchone()[0])
+    n_signals = int(con.execute("SELECT COUNT(*) FROM struct_vocab_row").fetchone()[0])
+    meta = {
+        **signature,
+        "complete": True,
+        "build_source": "legacy_feature_pickle",
+        "legacy_features_path": str(legacy_features_path.resolve()),
+        "document_count": n_docs,
+        "unique_structural_signals": n_signals,
+        "offline_timings_ms": timings,
+        "idf_storage": "not materialized; document frequency read on demand from struct_vocab_row",
+        "created_or_completed_utc": datetime.now(timezone.utc).isoformat(),
+        "database_size_bytes": db_size_bytes(db_path),
     }
-    return indexer, features, dict(signal_index), signal_idf, valid_doc_ids, timings
+    write_index_meta(meta_path, meta)
+    return meta
 
 
-def topk_structural(
+def build_or_open_unified_index(
+    collection_path: Path,
+    max_docs: int | None,
+    cache_dir: Path,
+    batch_size: int,
+    log_interval: int,
+    force_rebuild: bool,
+    cache_mb: int,
+    unsafe_fast_build: bool,
+    migrate_legacy_features: Path | None,
+):
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    db_path, meta_path = unified_index_paths(cache_dir, max_docs)
+    expected = unified_cache_signature(collection_path, max_docs)
+
+    existing_meta: dict | None = None
+    if meta_path.exists():
+        try:
+            existing_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            existing_meta = None
+
+    def signature_matches(meta: dict | None) -> bool:
+        if not meta:
+            return False
+        return all(meta.get(k) == v for k, v in expected.items())
+
+    if (
+        not force_rebuild
+        and db_path.exists()
+        and signature_matches(existing_meta)
+        and existing_meta.get("complete") is True
+    ):
+        print(f"Reusing validated unified RQ2 index: {db_path}")
+        con = sqlite3.connect(str(db_path))
+        configure_query_connection(con, cache_mb)
+        return con, db_path, meta_path, existing_meta, True
+
+    resumable = (
+        not force_rebuild
+        and db_path.exists()
+        and signature_matches(existing_meta)
+        and existing_meta.get("complete") is False
+        and existing_meta.get("build_source") == "collection.tsv"
+        and migrate_legacy_features is None
+    )
+
+    if not resumable:
+        for p in (db_path, Path(str(db_path) + "-wal"), Path(str(db_path) + "-shm"), meta_path):
+            if p.exists():
+                p.unlink()
+        existing_meta = None
+
+    con = sqlite3.connect(str(db_path))
+    configure_build_connection(con, cache_mb, unsafe_fast_build)
+    create_unified_schema(con)
+
+    if migrate_legacy_features is not None and existing_meta is None:
+        if not migrate_legacy_features.exists():
+            raise FileNotFoundError(migrate_legacy_features)
+        meta = build_index_from_legacy_pickle(
+            con=con,
+            db_path=db_path,
+            meta_path=meta_path,
+            signature=expected,
+            legacy_features_path=migrate_legacy_features,
+            max_docs=max_docs,
+            batch_size=batch_size,
+            log_interval=log_interval,
+            unsafe_fast_build=unsafe_fast_build,
+        )
+    else:
+        meta = build_index_from_collection(
+            con=con,
+            db_path=db_path,
+            meta_path=meta_path,
+            signature=expected,
+            collection_path=collection_path,
+            max_docs=max_docs,
+            batch_size=batch_size,
+            log_interval=log_interval,
+            unsafe_fast_build=unsafe_fast_build,
+            existing_meta=existing_meta,
+        )
+
+    con.close()
+    con = sqlite3.connect(str(db_path))
+    configure_query_connection(con, cache_mb)
+    print(f"Unified RQ2 index ready: {format_gib(db_size_bytes(db_path))}")
+    return con, db_path, meta_path, meta, False
+
+
+def structural_offline_ms(index_meta: dict) -> float | None:
+    t = index_meta.get("offline_timings_ms") or {}
+    keys = (
+        "tokenization_ms",
+        "signal_extraction_ms",
+        "docs_insert_ms",
+        "structural_fts_insert_ms",
+        "commit_ms",
+        "structural_optimize_ms",
+        "vocab_creation_ms",
+    )
+    vals = [float(t.get(k, 0.0)) for k in keys]
+    return sum(vals) if vals else None
+
+
+def lexical_offline_ms(index_meta: dict) -> float | None:
+    t = index_meta.get("offline_timings_ms") or {}
+    keys = (
+        "tokenization_ms",
+        "lexical_fts_insert_ms",
+        "commit_ms",
+        "lexical_optimize_ms",
+        "vocab_creation_ms",
+    )
+    vals = [float(t.get(k, 0.0)) for k in keys]
+    return sum(vals) if vals else None
+
+
+# ---------------------------------------------------------------------------
+# Structural retrieval over disk-backed index
+# ---------------------------------------------------------------------------
+def structural_query_weights(
+    con: sqlite3.Connection,
+    query_signals: set[str],
+    n_docs: int,
+    weighted: bool,
+) -> dict[str, float]:
+    if not query_signals:
+        return {}
+    if not weighted:
+        return {signal: 1.0 for signal in query_signals}
+
+    signals = sorted(query_signals)
+    placeholders = ",".join("?" for _ in signals)
+    rows = con.execute(
+        f"SELECT term, doc FROM struct_vocab_row WHERE term IN ({placeholders})",
+        signals,
+    ).fetchall()
+    return {
+        str(term): math.log((n_docs + 1) / (int(df) + 1)) + 1.0
+        for term, df in rows
+    }
+
+
+def rank_structural_isi(
+    con: sqlite3.Connection,
     query: str,
     indexer: MSMarcoIndexer,
-    features: dict,
-    signal_index: dict[str, set[str]],
-    signal_idf: dict[str, float],
+    n_docs: int,
     top_k: int,
     weighted: bool,
-    use_isi: bool,
 ):
     query_signals = indexer.extract_query_signals(query)
+    weights = structural_query_weights(con, query_signals, n_docs, weighted)
+    if not weights:
+        return [], 0, 0
 
-    if use_isi:
-        candidate_ids: set[str] = set()
-        for signal in query_signals:
-            candidate_ids.update(signal_index.get(signal, set()))
-        iterator = ((pid, features[pid]) for pid in candidate_ids if pid in features)
-        documents_scored = len(candidate_ids)
-    else:
-        candidate_ids = set()
-        iterator = features.items()
-        documents_scored = len(features)
+    values_sql = ",".join("(?,?)" for _ in weights)
+    params: list[object] = []
+    for signal, weight in weights.items():
+        params.extend([signal, float(weight)])
+    params.append(top_k)
 
-    heap: list[tuple[tuple[float, int, str], str, list[str]]] = []
+    sql = f"""
+        WITH qterms(term, weight) AS (VALUES {values_sql}),
+        scores AS (
+            SELECT
+                v.doc AS docid,
+                SUM(q.weight) AS score,
+                COUNT(*) AS matched_count
+            FROM struct_vocab_instance AS v
+            JOIN qterms AS q ON q.term = v.term
+            GROUP BY v.doc
+        ),
+        ranked AS (
+            SELECT
+                d.pid AS pid,
+                s.score AS score,
+                s.matched_count AS matched_count,
+                COUNT(*) OVER() AS candidate_count
+            FROM scores AS s
+            JOIN docs AS d ON d.rowid = s.docid
+        )
+        SELECT pid, score, matched_count, candidate_count
+        FROM ranked
+        ORDER BY score DESC, matched_count DESC, pid DESC
+        LIMIT ?
+    """
+    rows = con.execute(sql, params).fetchall()
+    if not rows:
+        return [], 0, 0
+    candidate_count = int(rows[0][3])
+    return [str(row[0]) for row in rows], candidate_count, candidate_count
+
+
+def rank_structural_fullscan(
+    con: sqlite3.Connection,
+    query: str,
+    indexer: MSMarcoIndexer,
+    n_docs: int,
+    top_k: int,
+    fetch_size: int,
+):
+    query_signals = indexer.extract_query_signals(query)
+    weights = structural_query_weights(con, query_signals, n_docs, weighted=True)
+    if not weights:
+        return [], 0, n_docs
+
+    get_weight = weights.get
+    heap: list[tuple[tuple[float, int, str], str]] = []
     candidate_count = 0
+    cursor = con.execute("SELECT pid, signals FROM docs ORDER BY rowid")
 
-    for pid, feature in iterator:
-        matched = query_signals.intersection(feature.graph_signals)
-        if not matched:
-            continue
-        candidate_count += 1
-        if weighted:
-            score = sum(signal_idf.get(s, 1.0) for s in matched)
-        else:
-            score = float(len(matched))
-        key = (score, len(matched), str(pid))
-        payload = (key, str(pid), sorted(matched))
-        if len(heap) < top_k:
-            heapq.heappush(heap, payload)
-        elif key > heap[0][0]:
-            heapq.heapreplace(heap, payload)
+    while True:
+        rows = cursor.fetchmany(fetch_size)
+        if not rows:
+            break
+        for pid, signals_text in rows:
+            score = 0.0
+            matched_count = 0
+            # Every structural signal occurs at most once in signals_text.
+            for signal in str(signals_text).split():
+                weight = get_weight(signal)
+                if weight is not None:
+                    score += weight
+                    matched_count += 1
+            if matched_count == 0:
+                continue
+            candidate_count += 1
+            pid_str = str(pid)
+            key = (score, matched_count, pid_str)
+            payload = (key, pid_str)
+            if len(heap) < top_k:
+                heapq.heappush(heap, payload)
+            elif key > heap[0][0]:
+                heapq.heapreplace(heap, payload)
 
     ranked = sorted(heap, key=lambda x: x[0], reverse=True)
-    ranked_ids = [pid for _, pid, _ in ranked]
-    return ranked_ids, candidate_count, documents_scored
+    return [pid for _key, pid in ranked], candidate_count, n_docs
 
 
-def evaluate_structural_method(
+def evaluate_structural_isi_method(
     method: str,
     gold: Sequence[GoldQuery],
+    con: sqlite3.Connection,
     indexer: MSMarcoIndexer,
-    features: dict,
-    signal_index: dict[str, set[str]],
-    signal_idf: dict[str, float],
+    n_docs: int,
     top_k: int,
     log_interval: int,
     weighted: bool,
-    use_isi: bool,
 ) -> list[dict]:
     details: list[dict] = []
     for i, item in enumerate(gold, start=1):
         start = time.perf_counter()
-        ranked_ids, candidate_count, documents_scored = topk_structural(
+        ranked_ids, candidate_count, documents_scored = rank_structural_isi(
+            con=con,
             query=item.query,
             indexer=indexer,
-            features=features,
-            signal_index=signal_index,
-            signal_idf=signal_idf,
+            n_docs=n_docs,
             top_k=top_k,
             weighted=weighted,
-            use_isi=use_isi,
         )
         latency_ms = (time.perf_counter() - start) * 1000.0
         rank = find_rank(ranked_ids, item.positive_ids)
@@ -445,157 +1026,98 @@ def evaluate_structural_method(
     return details
 
 
-# ---------------------------------------------------------------------------
-# SQLite FTS5 lexical baselines
-# ---------------------------------------------------------------------------
-def lexical_db_paths(cache_dir: Path, max_docs: int | None) -> tuple[Path, Path]:
-    tag = "all" if max_docs is None else str(max_docs)
-    return (
-        cache_dir / f"rq2_lexical_{tag}.sqlite3",
-        cache_dir / f"rq2_lexical_{tag}.meta.json",
-    )
-
-
-def lexical_cache_signature(collection_path: Path, max_docs: int | None) -> dict:
-    st = collection_path.stat()
-    return {
-        "collection_path": str(collection_path.resolve()),
-        "collection_size_bytes": st.st_size,
-        "collection_mtime_ns": st.st_mtime_ns,
-        "max_docs": max_docs,
-        "tokenizer": "MSMarcoIndexer._tokenize(min_token_len=2, built-in stopwords)",
-    }
-
-
-def ensure_fts5(con: sqlite3.Connection):
-    try:
-        con.execute("CREATE VIRTUAL TABLE IF NOT EXISTS __fts5_test USING fts5(x)")
-        con.execute("DROP TABLE IF EXISTS __fts5_test")
-    except sqlite3.OperationalError as exc:
-        raise RuntimeError(
-            "This Python/SQLite build does not provide FTS5, required for the BM25/TF-IDF baselines."
-        ) from exc
-
-
-def build_or_open_lexical_index(
-    collection_path: Path,
-    max_docs: int | None,
-    cache_dir: Path,
+def evaluate_fullscan_method(
+    gold: Sequence[GoldQuery],
+    con: sqlite3.Connection,
+    indexer: MSMarcoIndexer,
+    n_docs: int,
+    top_k: int,
+    fetch_size: int,
     log_interval: int,
-    force_rebuild: bool,
-):
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    db_path, meta_path = lexical_db_paths(cache_dir, max_docs)
-    expected = lexical_cache_signature(collection_path, max_docs)
-
-    cache_valid = False
-    if not force_rebuild and db_path.exists() and meta_path.exists():
-        try:
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            cache_valid = all(meta.get(k) == v for k, v in expected.items()) and meta.get("complete") is True
-        except Exception:
-            cache_valid = False
-
-    if cache_valid:
-        print(f"Loading validated lexical FTS5 index: {db_path}")
-        con = sqlite3.connect(str(db_path))
-        con.execute("PRAGMA query_only=ON")
-        n_docs = int(json.loads(meta_path.read_text(encoding="utf-8"))["document_count"])
-        return con, db_path, meta_path, 0.0, n_docs, True
-
-    if db_path.exists():
-        db_path.unlink()
-    if meta_path.exists():
-        meta_path.unlink()
-
-    print(f"Building lexical FTS5 index: {db_path}")
-    con = sqlite3.connect(str(db_path))
-    ensure_fts5(con)
-    con.execute("PRAGMA journal_mode=OFF")
-    con.execute("PRAGMA synchronous=OFF")
-    con.execute("PRAGMA temp_store=MEMORY")
-    con.execute("PRAGMA cache_size=-262144")
-    con.execute("CREATE VIRTUAL TABLE docs USING fts5(pid UNINDEXED, terms, tokenize='unicode61 remove_diacritics 0')")
-
-    indexer = MSMarcoIndexer(max_signals_per_document=64, min_token_len=2)
-    start = time.perf_counter()
-    batch: list[tuple[str, str]] = []
-    n_docs = 0
-
-    for doc in iter_collection(collection_path, max_docs):
-        # Baselines use normalized unigrams only; no bigram structural signals.
-        tokens = indexer._tokenize(doc["text"])
-        batch.append((str(doc["id"]), " ".join(tokens)))
-        n_docs += 1
-        if len(batch) >= 20_000:
-            con.executemany("INSERT INTO docs(pid, terms) VALUES (?, ?)", batch)
-            con.commit()
-            batch.clear()
-        if log_interval and n_docs % log_interval == 0:
-            elapsed = time.perf_counter() - start
-            rate = n_docs / elapsed if elapsed else 0.0
-            print(f"[LEXICAL INDEX] {n_docs:,} docs | {rate:,.0f} docs/s")
-
-    if batch:
-        con.executemany("INSERT INTO docs(pid, terms) VALUES (?, ?)", batch)
-        con.commit()
-
-    print("Optimizing FTS5 index...")
-    con.execute("INSERT INTO docs(docs) VALUES ('optimize')")
-    con.commit()
-    con.execute("CREATE VIRTUAL TABLE vocab_row USING fts5vocab(docs, 'row')")
-    con.execute("CREATE VIRTUAL TABLE vocab_instance USING fts5vocab(docs, 'instance')")
-    con.commit()
-
-    offline_ms = (time.perf_counter() - start) * 1000.0
-    meta = {
-        **expected,
-        "complete": True,
-        "document_count": n_docs,
-        "offline_index_time_ms": round(offline_ms, 4),
-        "created_utc": datetime.now(timezone.utc).isoformat(),
-    }
-    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
-
-    # Query connection configuration.
-    con.execute("PRAGMA cache_size=-262144")
-    return con, db_path, meta_path, offline_ms, n_docs, False
+) -> list[dict]:
+    details: list[dict] = []
+    for i, item in enumerate(gold, start=1):
+        start = time.perf_counter()
+        ranked_ids, candidate_count, documents_scored = rank_structural_fullscan(
+            con=con,
+            query=item.query,
+            indexer=indexer,
+            n_docs=n_docs,
+            top_k=top_k,
+            fetch_size=fetch_size,
+        )
+        latency_ms = (time.perf_counter() - start) * 1000.0
+        rank = find_rank(ranked_ids, item.positive_ids)
+        metrics = metric_values(rank)
+        details.append({
+            "method": METHOD_FULLSCAN,
+            "query_id": item.query_id,
+            "query": item.query,
+            "positive_ids": item.positive_ids,
+            "rank": rank,
+            **metrics,
+            "latency_ms": round(latency_ms, 6),
+            "candidate_count": candidate_count,
+            "documents_scored": documents_scored,
+            "top_document_ids": ranked_ids,
+        })
+        print(
+            f"[{METHOD_FULLSCAN}] {i:,}/{len(gold):,} | "
+            f"{latency_ms:,.2f} ms | candidates={candidate_count:,}"
+        )
+        if log_interval and i % log_interval == 0:
+            avg = statistics.fmean(x["latency_ms"] for x in details)
+            print(f"[{METHOD_FULLSCAN}] running avg={avg:,.2f} ms/query")
+    return details
 
 
-def baseline_query_tokens(query: str) -> list[str]:
-    indexer = MSMarcoIndexer(max_signals_per_document=64, min_token_len=2)
-    return indexer._tokenize(query)
+# ---------------------------------------------------------------------------
+# Lexical baselines over the same unified index
+# ---------------------------------------------------------------------------
+def baseline_query_tokens(query: str, indexer: MSMarcoIndexer) -> list[str]:
+    return indexer.tokenize(query)
 
 
 def fts_quote(term: str) -> str:
     return '"' + term.replace('"', '""') + '"'
 
 
-def rank_bm25(con: sqlite3.Connection, query: str, top_k: int):
-    tokens = baseline_query_tokens(query)
+def rank_bm25(
+    con: sqlite3.Connection,
+    query: str,
+    indexer: MSMarcoIndexer,
+    top_k: int,
+):
+    tokens = baseline_query_tokens(query, indexer)
     if not tokens:
-        return [], 0
+        return [], None
     unique = list(dict.fromkeys(tokens))
     match_expr = " OR ".join(fts_quote(t) for t in unique)
     rows = con.execute(
-        "SELECT pid, bm25(docs) AS score FROM docs "
-        "WHERE docs MATCH ? ORDER BY score ASC, pid ASC LIMIT ?",
+        "SELECT d.pid, bm25(lexical_fts) AS score "
+        "FROM lexical_fts JOIN docs AS d ON d.rowid = lexical_fts.rowid "
+        "WHERE lexical_fts MATCH ? "
+        "ORDER BY score ASC, d.pid ASC LIMIT ?",
         (match_expr, top_k),
     ).fetchall()
-    # Candidate count is intentionally omitted because COUNT(*) over every
-    # matching posting can materially distort measured query latency.
     return [str(r[0]) for r in rows], None
 
 
-def rank_tfidf_dot(con: sqlite3.Connection, query: str, top_k: int, n_docs: int):
-    tokens = baseline_query_tokens(query)
+def rank_tfidf_dot(
+    con: sqlite3.Connection,
+    query: str,
+    indexer: MSMarcoIndexer,
+    top_k: int,
+    n_docs: int,
+):
+    tokens = baseline_query_tokens(query, indexer)
     if not tokens:
         return [], 0
     qtf = Counter(tokens)
     terms = list(qtf.keys())
     placeholders = ",".join("?" for _ in terms)
     df_rows = con.execute(
-        f"SELECT term, doc FROM vocab_row WHERE term IN ({placeholders})",
+        f"SELECT term, doc FROM lex_vocab_row WHERE term IN ({placeholders})",
         terms,
     ).fetchall()
     idf = {
@@ -615,7 +1137,7 @@ def rank_tfidf_dot(con: sqlite3.Connection, query: str, top_k: int, n_docs: int)
     sql = f"""
         WITH qterms(term, qtf, idf) AS (VALUES {values_sql})
         SELECT d.pid, SUM(q.qtf * q.idf) AS score
-        FROM vocab_instance AS v
+        FROM lex_vocab_instance AS v
         JOIN qterms AS q ON q.term = v.term
         JOIN docs AS d ON d.rowid = v.doc
         GROUP BY v.doc
@@ -630,6 +1152,7 @@ def evaluate_lexical_method(
     method: str,
     gold: Sequence[GoldQuery],
     con: sqlite3.Connection,
+    indexer: MSMarcoIndexer,
     n_docs: int,
     top_k: int,
     log_interval: int,
@@ -638,9 +1161,9 @@ def evaluate_lexical_method(
     for i, item in enumerate(gold, start=1):
         start = time.perf_counter()
         if method == METHOD_BM25:
-            ranked_ids, candidate_count = rank_bm25(con, item.query, top_k)
+            ranked_ids, candidate_count = rank_bm25(con, item.query, indexer, top_k)
         elif method == METHOD_TFIDF:
-            ranked_ids, candidate_count = rank_tfidf_dot(con, item.query, top_k, n_docs)
+            ranked_ids, candidate_count = rank_tfidf_dot(con, item.query, indexer, top_k, n_docs)
         else:
             raise ValueError(method)
         latency_ms = (time.perf_counter() - start) * 1000.0
@@ -665,11 +1188,10 @@ def evaluate_lexical_method(
 
 
 # ---------------------------------------------------------------------------
-# Output
+# Output / checkpoints
 # ---------------------------------------------------------------------------
-def write_method_checkpoint(run_dir: Path, method: str, details: list[dict], summary: EvalSummary):
-    run_dir.mkdir(parents=True, exist_ok=True)
-    safe = (
+def method_safe_name(method: str) -> str:
+    return (
         method.lower()
         .replace(" ", "_")
         .replace("+", "plus")
@@ -677,6 +1199,11 @@ def write_method_checkpoint(run_dir: Path, method: str, details: list[dict], sum
         .replace(")", "")
         .replace("/", "_")
     )
+
+
+def write_method_checkpoint(run_dir: Path, method: str, details: list[dict], summary: EvalSummary) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    safe = method_safe_name(method)
     (run_dir / f"checkpoint_{safe}_details.json").write_text(
         json.dumps(details, indent=2), encoding="utf-8"
     )
@@ -691,7 +1218,7 @@ def write_outputs(
     summaries: list[EvalSummary],
     details_by_method: dict[str, list[dict]],
     metadata: dict,
-):
+) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
 
     summary_json = run_dir / "rq2_summary.json"
@@ -722,10 +1249,10 @@ def write_outputs(
 
 
 # ---------------------------------------------------------------------------
-# Main
+# CLI / main
 # ---------------------------------------------------------------------------
 def parse_args():
-    p = argparse.ArgumentParser(description="Corrected RQ2 retrieval benchmark")
+    p = argparse.ArgumentParser(description="RQ2 disk-backed ablation benchmark")
     p.add_argument("--collection", type=Path, default=DEFAULT_COLLECTION)
     p.add_argument("--queries", type=Path, default=DEFAULT_QUERIES)
     p.add_argument("--qrels", type=Path, default=DEFAULT_QRELS)
@@ -734,26 +1261,72 @@ def parse_args():
     p.add_argument("--run-name", default=None, help="Output subdirectory; default is a UTC timestamp.")
     p.add_argument("--top-k", type=int, default=DEFAULT_TOP_K)
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
-    p.add_argument("--latency-sample", type=int, default=DEFAULT_LATENCY_SAMPLE,
-                   help="Number of deterministic queries used for full-scan latency ablation.")
-    p.add_argument("--max-docs", type=int, default=100_000,
-                   help="Smoke-test corpus cap. Use --official for the full corpus.")
-    p.add_argument("--max-queries", type=int, default=200,
-                   help="Smoke-test query cap. Use --official for the full dev-small set.")
-    p.add_argument("--official", action="store_true",
-                   help=f"Use up to {OFFICIAL_MAX_DOCS:,} docs and {OFFICIAL_MAX_QUERIES:,} queries.")
-    p.add_argument("--methods", type=parse_methods,
-                   default=parse_methods("tfidf,bm25,overlap,fullscan,ssr"),
-                   help="Comma-separated: tfidf,bm25,overlap,fullscan,ssr")
-    p.add_argument("--full-scan-all", action="store_true",
-                   help="Evaluate exhaustive Structural+IDF on all eligible queries. Very expensive on full MS MARCO.")
-    p.add_argument("--force-lexical-rebuild", action="store_true")
+    p.add_argument(
+        "--latency-sample",
+        type=int,
+        default=DEFAULT_LATENCY_SAMPLE,
+        help="Deterministic query sample used by the exhaustive full-scan ablation.",
+    )
+    p.add_argument(
+        "--max-docs",
+        type=int,
+        default=100_000,
+        help="Smoke-test corpus cap. Use --official for the full collection.",
+    )
+    p.add_argument(
+        "--max-queries",
+        type=int,
+        default=200,
+        help="Smoke-test query cap. Use --official for all dev-small eligible queries.",
+    )
+    p.add_argument(
+        "--official",
+        action="store_true",
+        help=f"Use up to {OFFICIAL_MAX_DOCS:,} docs and {OFFICIAL_MAX_QUERIES:,} queries.",
+    )
+    p.add_argument(
+        "--methods",
+        type=parse_methods,
+        default=parse_methods("tfidf,bm25,overlap,fullscan,ssr"),
+        help="Comma-separated: tfidf,bm25,overlap,fullscan,ssr",
+    )
+    p.add_argument(
+        "--full-scan-all",
+        action="store_true",
+        help="Exhaustively scan the corpus separately for every eligible query. Extremely expensive.",
+    )
+    p.add_argument(
+        "--index-only",
+        action="store_true",
+        help="Build/reuse the unified disk index and exit before loading/evaluating queries.",
+    )
+    p.add_argument("--index-batch-size", type=int, default=DEFAULT_INDEX_BATCH_SIZE)
+    p.add_argument("--fullscan-fetch-size", type=int, default=DEFAULT_FULLSCAN_FETCH_SIZE)
+    p.add_argument("--sqlite-cache-mb", type=int, default=DEFAULT_SQLITE_CACHE_MB)
+    p.add_argument("--force-index-rebuild", action="store_true")
+    # Backward-compatible alias used by older commands.
+    p.add_argument("--force-lexical-rebuild", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument(
+        "--unsafe-fast-build",
+        action="store_true",
+        help="Use journal_mode=OFF/synchronous=OFF while building. Faster, but interrupted builds may be unusable.",
+    )
+    p.add_argument(
+        "--migrate-legacy-features",
+        type=Path,
+        default=None,
+        help=(
+            "Optional path to old cache_features_full.pkl. Builds the new unified disk index from the "
+            "legacy feature mapping instead of re-extracting structural signals from collection.tsv. "
+            "The pickle is loaded completely into RAM."
+        ),
+    )
     p.add_argument("--index-log-interval", type=int, default=100_000)
     p.add_argument("--query-log-interval", type=int, default=100)
     return p.parse_args()
 
 
-def main():
+def main() -> None:
     args = parse_args()
     if args.official:
         max_docs: int | None = OFFICIAL_MAX_DOCS
@@ -766,271 +1339,233 @@ def main():
     run_name = args.run_name or now_run_id()
     run_dir = args.results_root / run_name
 
-    for path in (args.collection, args.queries, args.qrels):
-        if not path.exists():
-            raise FileNotFoundError(path)
+    if not args.collection.exists():
+        raise FileNotFoundError(args.collection)
 
-    print("===== RQ2 CORRECTED BENCHMARK =====")
+    print("===== RQ2 DISK-BACKED ABLATION BENCHMARK =====")
+    print(f"Protocol version: {PROTOCOL_VERSION}")
     print(f"Collection: {args.collection}")
     print(f"Max docs: {max_docs if max_docs is not None else 'ALL'}")
     print(f"Max queries: {max_queries if max_queries is not None else 'ALL'}")
     print(f"Top K: {args.top_k}")
     print(f"Methods: {methods}")
+    print(f"Index batch size: {args.index_batch_size:,}")
     print(f"Run directory: {run_dir}")
 
+    force_rebuild = args.force_index_rebuild or args.force_lexical_rebuild
+    con, db_path, meta_path, index_meta, index_reused = build_or_open_unified_index(
+        collection_path=args.collection,
+        max_docs=max_docs,
+        cache_dir=args.cache_dir,
+        batch_size=args.index_batch_size,
+        log_interval=args.index_log_interval,
+        force_rebuild=force_rebuild,
+        cache_mb=args.sqlite_cache_mb,
+        unsafe_fast_build=args.unsafe_fast_build,
+        migrate_legacy_features=args.migrate_legacy_features,
+    )
+
+    n_docs = int(index_meta["document_count"])
+    print(f"Indexed documents: {n_docs:,}")
+    print(f"Unique structural signals: {int(index_meta.get('unique_structural_signals', 0)):,}")
+    print(f"Index reused in this run: {index_reused}")
+    print(f"Unified index size: {format_gib(db_size_bytes(db_path))}")
+
+    if args.index_only:
+        print("Index-only mode complete. No queries or retrieval methods were executed.")
+        con.close()
+        return
+
+    for path in (args.queries, args.qrels):
+        if not path.exists():
+            con.close()
+            raise FileNotFoundError(path)
     queries = load_queries(args.queries)
     qrels = load_qrels(args.qrels)
+    print(f"Loaded queries file: {len(queries):,}")
+    print(f"Loaded qrel query IDs: {len(qrels):,}")
+
+    if n_docs >= OFFICIAL_MAX_DOCS and (max_docs is None or max_docs >= OFFICIAL_MAX_DOCS):
+        doc_exists = None
+    else:
+        exists_cur = con.cursor()
+
+        def doc_exists(pid: str) -> bool:
+            return exists_cur.execute("SELECT 1 FROM docs WHERE pid=? LIMIT 1", (str(pid),)).fetchone() is not None
+
+    gold = build_gold(queries, qrels, max_queries=max_queries, doc_exists=doc_exists)
+    print(f"Eligible queries: {len(gold):,}")
+    if not gold:
+        raise RuntimeError("No eligible queries remain after qrel/document filtering.")
+
+    rng = random.Random(args.seed)
+    sample_size = min(args.latency_sample, len(gold))
+    latency_indices = sorted(rng.sample(range(len(gold)), sample_size))
+    latency_gold = [gold[i] for i in latency_indices]
+    latency_query_ids = {item.query_id for item in latency_gold}
+    print(f"Common deterministic full-scan sample: {len(latency_gold):,} queries (seed={args.seed})")
+
+    indexer = MSMarcoIndexer(max_signals_per_document=64, min_token_len=2)
+    structural_build_ms = structural_offline_ms(index_meta)
+    lexical_build_ms = lexical_offline_ms(index_meta)
+    cache_note = "cache reused" if index_reused else "index built in this run"
 
     summaries: list[EvalSummary] = []
     details_by_method: dict[str, list[dict]] = {}
-    gold: list[GoldQuery] | None = None
-    valid_doc_ids: set[str] | None = None
+    summary_by_method: dict[str, EvalSummary] = {}
 
-    structural_methods = {METHOD_OVERLAP, METHOD_FULLSCAN, METHOD_SSR}
-    need_structural = any(m in structural_methods for m in methods)
+    if METHOD_TFIDF in methods:
+        print(f"\nRunning {METHOD_TFIDF} on {len(gold):,} queries...")
+        d = evaluate_lexical_method(
+            METHOD_TFIDF, gold, con, indexer, n_docs, args.top_k, args.query_log_interval
+        )
+        details_by_method[METHOD_TFIDF] = d
+        s = summarize_method(
+            METHOD_TFIDF,
+            d,
+            lexical_build_ms,
+            f"Unigram TF-IDF dot product; shared one-pass disk index ({cache_note}). Offline time is original construction time, not cache-open time.",
+            latency_query_ids=latency_query_ids,
+        )
+        summaries.append(s)
+        summary_by_method[METHOD_TFIDF] = s
+        write_method_checkpoint(run_dir, METHOD_TFIDF, d, s)
 
-    structural_timings = None
-    n_structural_signals = None
-    latency_query_ids: set[str] = set()
+    if METHOD_BM25 in methods:
+        print(f"\nRunning {METHOD_BM25} on {len(gold):,} queries...")
+        d = evaluate_lexical_method(
+            METHOD_BM25, gold, con, indexer, n_docs, args.top_k, args.query_log_interval
+        )
+        details_by_method[METHOD_BM25] = d
+        s = summarize_method(
+            METHOD_BM25,
+            d,
+            lexical_build_ms,
+            f"SQLite FTS5 BM25 over normalized unigrams; shared one-pass disk index ({cache_note}).",
+            latency_query_ids=latency_query_ids,
+        )
+        summaries.append(s)
+        summary_by_method[METHOD_BM25] = s
+        write_method_checkpoint(run_dir, METHOD_BM25, d, s)
 
-    if need_structural:
-        print("\nBuilding structural representation, IDF, and ISI...")
-        (
+    if METHOD_OVERLAP in methods:
+        print(f"\nRunning {METHOD_OVERLAP} on {len(gold):,} queries...")
+        d = evaluate_structural_isi_method(
+            METHOD_OVERLAP,
+            gold,
+            con,
             indexer,
-            features,
-            signal_index,
-            signal_idf,
-            valid_doc_ids,
-            structural_timings,
-        ) = build_structural_state(
-            args.collection, max_docs, args.index_log_interval
+            n_docs,
+            args.top_k,
+            args.query_log_interval,
+            weighted=False,
         )
-        n_structural_signals = len(signal_index)
-        gold = build_gold(queries, qrels, valid_doc_ids, max_queries)
-        print(f"Structural documents: {len(features):,}")
-        print(f"Eligible queries: {len(gold):,}")
-        print(f"Structural signals: {n_structural_signals:,}")
-        print(f"Structural offline timings: {json.dumps(structural_timings, indent=2)}")
-
-        rng = random.Random(args.seed)
-        sample_size = min(args.latency_sample, len(gold))
-        latency_indices = sorted(rng.sample(range(len(gold)), sample_size))
-        latency_query_ids = {gold[i].query_id for i in latency_indices}
-        latency_gold = [gold[i] for i in latency_indices]
-        print(f"Common online-latency sample: {len(latency_gold):,} queries (seed={args.seed})")
-
-        overlap_offline_ms = (
-            structural_timings["feature_extraction_ms"]
-            + structural_timings["isi_construction_ms"]
+        details_by_method[METHOD_OVERLAP] = d
+        s = summarize_method(
+            METHOD_OVERLAP,
+            d,
+            structural_build_ms,
+            f"Unweighted structural overlap; disk-backed ISI restricts scoring to matching documents ({cache_note}).",
+            latency_query_ids=latency_query_ids,
         )
-        fullscan_offline_ms = (
-            structural_timings["feature_extraction_ms"]
-            + structural_timings["idf_computation_ms"]
+        summaries.append(s)
+        summary_by_method[METHOD_OVERLAP] = s
+        write_method_checkpoint(run_dir, METHOD_OVERLAP, d, s)
+
+    if METHOD_SSR in methods:
+        print(f"\nRunning {METHOD_SSR} on {len(gold):,} queries...")
+        d = evaluate_structural_isi_method(
+            METHOD_SSR,
+            gold,
+            con,
+            indexer,
+            n_docs,
+            args.top_k,
+            args.query_log_interval,
+            weighted=True,
         )
-        ssr_offline_ms = structural_timings["total_ms"]
-
-        if METHOD_OVERLAP in methods:
-            print(f"\nRunning {METHOD_OVERLAP}...")
-            d = evaluate_structural_method(
-                METHOD_OVERLAP, gold, indexer, features, signal_index, signal_idf,
-                args.top_k, args.query_log_interval, weighted=False, use_isi=True,
-            )
-            details_by_method[METHOD_OVERLAP] = d
-            summary = summarize_method(
-                METHOD_OVERLAP, d, overlap_offline_ms,
-                "Unweighted structural-signal overlap; ISI restricts scoring to matching documents.",
-                latency_query_ids=latency_query_ids,
-            )
-            summaries.append(summary)
-            write_method_checkpoint(run_dir, METHOD_OVERLAP, d, summary)
-
-        if METHOD_SSR in methods:
-            print(f"\nRunning {METHOD_SSR}...")
-            d = evaluate_structural_method(
-                METHOD_SSR, gold, indexer, features, signal_index, signal_idf,
-                args.top_k, args.query_log_interval, weighted=True, use_isi=True,
-            )
-            details_by_method[METHOD_SSR] = d
-            summary = summarize_method(
-                METHOD_SSR, d, ssr_offline_ms,
-                "Complete SSR: IDF-weighted structural ranking restricted by ISI.",
-                latency_query_ids=latency_query_ids,
-            )
-            summaries.append(summary)
-            write_method_checkpoint(run_dir, METHOD_SSR, d, summary)
-
-        if METHOD_FULLSCAN in methods:
-            if args.full_scan_all:
-                fullscan_gold = list(gold)
-                note = (
-                    "Exhaustive IDF-weighted scoring over the complete corpus; "
-                    "all eligible queries evaluated directly."
-                )
-            else:
-                fullscan_gold = list(latency_gold)
-                note = (
-                    f"Exhaustive IDF-weighted scoring on the common deterministic {len(fullscan_gold)}-query "
-                    f"latency sample (seed={args.seed}). Its scoring function is identical to SSR; "
-                    f"only candidate enumeration differs."
-                )
-
-            print(f"\nRunning {METHOD_FULLSCAN} on {len(fullscan_gold):,} queries...")
-            d = evaluate_structural_method(
-                METHOD_FULLSCAN, fullscan_gold, indexer, features, signal_index,
-                signal_idf, args.top_k, args.query_log_interval,
-                weighted=True, use_isi=False,
-            )
-            details_by_method[METHOD_FULLSCAN] = d
-
-            # First compute the full-scan latency/candidate statistics from the
-            # queries that were actually executed. Effectiveness is either
-            # measured directly (--full-scan-all) or, in the default protocol,
-            # reported from SSR only after ranking equivalence is verified.
-            summary = summarize_method(
-                METHOD_FULLSCAN, d, fullscan_offline_ms, note,
-                effectiveness_measured=args.full_scan_all,
-                latency_query_ids=latency_query_ids,
-            )
-
-            if METHOD_SSR in details_by_method:
-                ssr_map = {
-                    x["query_id"]: x["top_document_ids"]
-                    for x in details_by_method[METHOD_SSR]
-                }
-                mismatches = [
-                    x["query_id"] for x in d
-                    if ssr_map.get(x["query_id"]) != x["top_document_ids"]
-                ]
-                if mismatches:
-                    raise RuntimeError(
-                        "Full-scan IDF and SSR rankings differ for query IDs: "
-                        + ", ".join(mismatches[:10])
-                    )
-
-                verification_scope = (
-                    "all eligible queries" if args.full_scan_all
-                    else f"the deterministic {len(fullscan_gold)}-query latency sample"
-                )
-                print(
-                    "Verified: full-scan IDF and SSR rankings are identical on "
-                    + verification_scope
-                    + "."
-                )
-
-                # When the exhaustive variant is intentionally run only on the
-                # latency sample, do not leave its paper-facing effectiveness
-                # cells empty. Full-scan IDF and SSR have the same score for
-                # every document with non-zero structural overlap; ISI merely
-                # enumerates that same non-zero candidate set. After the
-                # empirical equivalence check above, report the already-measured
-                # SSR effectiveness values for this ablation row while keeping
-                # the full-scan latency measured from its own exhaustive calls.
-                if not args.full_scan_all:
-                    ssr_summary = next(
-                        (x for x in summaries if x.method == METHOD_SSR), None
-                    )
-                    if ssr_summary is None:
-                        raise RuntimeError(
-                            "SSR summary is required to report full-scan effectiveness "
-                            "without --full-scan-all."
-                        )
-
-                    summary.effectiveness_queries = ssr_summary.effectiveness_queries
-                    summary.recall_at_1 = ssr_summary.recall_at_1
-                    summary.recall_at_3 = ssr_summary.recall_at_3
-                    summary.recall_at_5 = ssr_summary.recall_at_5
-                    summary.recall_at_10 = ssr_summary.recall_at_10
-                    summary.mrr_at_10 = ssr_summary.mrr_at_10
-                    summary.notes = (
-                        note
-                        + " Effectiveness metrics are reported from SSR after "
-                        + "verifying ranking equivalence on the common latency sample; "
-                        + "the exhaustive variant is not redundantly executed on all "
-                        + "effectiveness queries."
-                    )
-                    print(
-                        "Full-scan effectiveness metrics populated from SSR after "
-                        "verified ranking equivalence."
-                    )
-            elif not args.full_scan_all:
-                print(
-                    "Warning: SSR was not requested, so full-scan effectiveness "
-                    "metrics remain unset. Include 'ssr' in --methods or use "
-                    "--full-scan-all to measure them directly."
-                )
-
-            summaries.append(summary)
-            write_method_checkpoint(run_dir, METHOD_FULLSCAN, d, summary)
-
-        # Release the very large Python structural state before opening/building
-        # the disk-backed lexical index.
-        del features, signal_index, signal_idf
-        gc.collect()
-
-    lexical_methods = {METHOD_TFIDF, METHOD_BM25}
-    if any(m in lexical_methods for m in methods):
-        print("\nPreparing lexical baseline index...")
-        con, db_path, meta_path, lexical_offline_ms, lexical_n_docs, reused = build_or_open_lexical_index(
-            args.collection,
-            max_docs,
-            args.cache_dir,
-            args.index_log_interval,
-            args.force_lexical_rebuild,
+        details_by_method[METHOD_SSR] = d
+        s = summarize_method(
+            METHOD_SSR,
+            d,
+            structural_build_ms,
+            f"Complete SSR structural-IDF ranking over the disk-backed ISI ({cache_note}).",
+            latency_query_ids=latency_query_ids,
         )
-        print(f"Lexical documents: {lexical_n_docs:,}")
-        print(f"Lexical index reused: {reused}")
+        summaries.append(s)
+        summary_by_method[METHOD_SSR] = s
+        write_method_checkpoint(run_dir, METHOD_SSR, d, s)
 
-        # If no structural method was requested, derive valid IDs directly from
-        # the FTS table. This is memory-heavy for the full collection; normal
-        # all-method runs reuse the already-derived structural gold set.
-        if gold is None:
-            if max_docs is None or max_docs >= OFFICIAL_MAX_DOCS:
-                # The official index covers the complete collection, so all qrel
-                # document IDs can be used directly without materializing 8.8M IDs.
-                gold = build_gold(queries, qrels, None, max_queries)
-            else:
-                print("Loading valid document IDs from lexical index for gold filtering...")
-                valid_doc_ids = {str(row[0]) for row in con.execute("SELECT pid FROM docs")}
-                gold = build_gold(queries, qrels, valid_doc_ids, max_queries)
-                del valid_doc_ids
-                gc.collect()
-        print(f"Eligible queries for lexical baselines: {len(gold):,}")
+    if METHOD_FULLSCAN in methods:
+        if METHOD_SSR not in details_by_method:
+            raise RuntimeError(
+                "The full-scan ablation requires 'ssr' in --methods so exact ranking equivalence can be verified."
+            )
 
-        if METHOD_TFIDF in methods:
-            print(f"\nRunning {METHOD_TFIDF}...")
-            d = evaluate_lexical_method(
-                METHOD_TFIDF, gold, con, lexical_n_docs, args.top_k, args.query_log_interval
+        if args.full_scan_all:
+            fullscan_gold = list(gold)
+            direct_effectiveness = True
+            note = (
+                "Exhaustive structural-IDF scoring over every indexed document for every eligible query. "
+                "This is intentionally very expensive."
             )
-            details_by_method[METHOD_TFIDF] = d
-            summary = summarize_method(
-                METHOD_TFIDF, d, lexical_offline_ms if not reused else 0.0,
-                "Classical unigram TF-IDF dot-product baseline; raw term frequency and smoothed IDF, without cosine normalization.",
-                latency_query_ids=latency_query_ids if latency_query_ids else None,
+        else:
+            fullscan_gold = list(latency_gold)
+            direct_effectiveness = False
+            note = (
+                f"Exhaustive structural-IDF scoring over all {n_docs:,} indexed documents for the deterministic "
+                f"{len(fullscan_gold)}-query sample (seed={args.seed}). Effectiveness is inherited from SSR only "
+                "after exact top-k equivalence is verified on this implementation check."
             )
-            summaries.append(summary)
-            write_method_checkpoint(run_dir, METHOD_TFIDF, d, summary)
 
-        if METHOD_BM25 in methods:
-            print(f"\nRunning {METHOD_BM25}...")
-            d = evaluate_lexical_method(
-                METHOD_BM25, gold, con, lexical_n_docs, args.top_k, args.query_log_interval
-            )
-            details_by_method[METHOD_BM25] = d
-            summary = summarize_method(
-                METHOD_BM25, d, lexical_offline_ms if not reused else 0.0,
-                "SQLite FTS5 BM25 over the same normalized unigram representation used by the lexical baseline.",
-                latency_query_ids=latency_query_ids if latency_query_ids else None,
-            )
-            summaries.append(summary)
-            write_method_checkpoint(run_dir, METHOD_BM25, d, summary)
-        con.close()
+        print(f"\nRunning {METHOD_FULLSCAN} on {len(fullscan_gold):,} queries...")
+        d = evaluate_fullscan_method(
+            fullscan_gold,
+            con,
+            indexer,
+            n_docs,
+            args.top_k,
+            args.fullscan_fetch_size,
+            args.query_log_interval,
+        )
+        details_by_method[METHOD_FULLSCAN] = d
 
-    # Order rows for paper readability.
+        ssr_map = {
+            x["query_id"]: x["top_document_ids"]
+            for x in details_by_method[METHOD_SSR]
+        }
+        mismatches = [
+            x["query_id"]
+            for x in d
+            if ssr_map.get(x["query_id"]) != x["top_document_ids"]
+        ]
+        if mismatches:
+            raise RuntimeError(
+                "Full-scan structural-IDF and SSR rankings differ for query IDs: "
+                + ", ".join(mismatches[:10])
+            )
+        print("Verified: full-scan structural-IDF and SSR top-k rankings are identical on the deterministic sample.")
+
+        s = summarize_method(
+            METHOD_FULLSCAN,
+            d,
+            structural_build_ms,
+            note,
+            effectiveness_measured=direct_effectiveness,
+            latency_query_ids=latency_query_ids,
+        )
+        if not direct_effectiveness:
+            ssr_summary = summary_by_method[METHOD_SSR]
+            copy_effectiveness(ssr_summary, s, len(gold))
+        summaries.append(s)
+        summary_by_method[METHOD_FULLSCAN] = s
+        write_method_checkpoint(run_dir, METHOD_FULLSCAN, d, s)
+
     order = [METHOD_TFIDF, METHOD_BM25, METHOD_OVERLAP, METHOD_FULLSCAN, METHOD_SSR]
     summaries.sort(key=lambda x: order.index(x.method) if x.method in order else 999)
 
     metadata = {
-        "protocol_version": 2,
+        "protocol_version": PROTOCOL_VERSION,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "dataset": "MS MARCO Passage Ranking Dev Small",
         "collection_path": str(args.collection.resolve()),
@@ -1038,45 +1573,57 @@ def main():
         "qrels_path": str(args.qrels.resolve()),
         "queries_sha256": sha256_file(args.queries),
         "qrels_sha256": sha256_file(args.qrels),
-        "collection_size_bytes": args.collection.stat().st_size,
-        "collection_mtime_ns": args.collection.stat().st_mtime_ns,
+        "collection_fingerprint": quick_file_fingerprint(args.collection),
         "max_docs": max_docs,
         "max_queries": max_queries,
-        "eligible_queries": len(gold) if gold is not None else 0,
+        "indexed_documents": n_docs,
+        "eligible_queries": len(gold),
         "top_k": args.top_k,
         "seed": args.seed,
-        "full_scan_latency_sample": args.latency_sample,
+        "full_scan_latency_sample_requested": args.latency_sample,
         "full_scan_all": args.full_scan_all,
-        "full_scan_effectiveness_reporting": (
-            "direct exhaustive evaluation on all eligible queries"
-            if args.full_scan_all
-            else (
-                "SSR effectiveness after empirical ranking-equivalence verification "
-                "on the deterministic latency sample; full-scan latency measured directly"
-                if METHOD_FULLSCAN in methods and METHOD_SSR in methods
-                else "not populated unless measured directly"
-            )
-        ),
         "common_latency_query_count": len(latency_query_ids),
         "common_latency_query_ids": sorted(latency_query_ids),
-        "structural_offline_timings_ms": structural_timings,
         "methods": methods,
+        "unified_index": {
+            "db_path": str(db_path.resolve()),
+            "meta_path": str(meta_path.resolve()),
+            "reused": index_reused,
+            "database_size_bytes": db_size_bytes(db_path),
+            "schema_version": INDEX_SCHEMA_VERSION,
+            "build_source": index_meta.get("build_source"),
+            "offline_timings_ms": index_meta.get("offline_timings_ms"),
+            "structural_offline_time_reported_ms": structural_build_ms,
+            "lexical_offline_time_reported_ms": lexical_build_ms,
+            "unique_structural_signals": index_meta.get("unique_structural_signals"),
+            "idf_storage": index_meta.get("idf_storage"),
+        },
         "structural_extraction": {
             "max_signals_per_document": 64,
             "min_token_len": 2,
-            "signals": "normalized unigrams followed by consecutive bigrams",
+            "signals": "normalized unigrams followed by consecutive bigrams; bounded to 64 unique signals",
+            "extractor_version": EXTRACTOR_VERSION,
         },
         "idf_formula": "log((N+1)/(df+1)) + 1",
         "tfidf_formula": "sum_t qtf(t) * dtf(t,d) * idf(t); no cosine normalization",
-        "bm25_implementation": "SQLite FTS5 bm25()",
+        "bm25_implementation": "SQLite FTS5 bm25() over contentless lexical index",
+        "isi_implementation": "SQLite FTS5 structural postings queried through fts5vocab(instance)",
+        "fullscan_implementation": "sequential SELECT over docs table; every document visited for each sampled query",
         "latency_scope": "online query execution only; offline index construction reported separately",
+        "fullscan_effectiveness_policy": (
+            "When --full-scan-all is false, effectiveness is copied from SSR only after exact top-k "
+            "equivalence is verified on the deterministic sample; the score function is identical and ISI "
+            "only removes zero-overlap documents."
+        ),
         "python_version": sys.version,
+        "sqlite_version": sqlite3.sqlite_version,
         "platform": platform.platform(),
         "script": str(THIS_FILE),
         "run_name": run_name,
     }
 
     write_outputs(run_dir, summaries, details_by_method, metadata)
+    con.close()
 
     print("\n===== SUMMARY =====")
     print(json.dumps([asdict(x) for x in summaries], indent=2))
