@@ -1,3 +1,10 @@
-python datasets/benchmark_msmarco/rq2_retrieval_benchmark.py \
-  --official \
-  --run-name rq2_official_v3
+python --version
+python -c "import platform; print(platform.platform()); print(platform.machine()); print(platform.processor())"
+python -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)"
+python -m pip show openai python-dotenv
+uname -a
+cat /etc/os-release
+nproc
+free -h
+lscpu
+git rev-parse HEAD
