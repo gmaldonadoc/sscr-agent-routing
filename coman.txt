@@ -1,10 +1,6 @@
-python --version
-python -c "import platform; print(platform.platform()); print(platform.machine()); print(platform.processor())"
-python -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)"
-python -m pip show openai python-dotenv
-uname -a
-cat /etc/os-release
-nproc
-free -h
-lscpu
-git rev-parse HEAD
+python rq3_end_to_end_benchmark_bm25_only.py `
+  --skip-traditional `
+  --skip-ssr `
+  --n-values 100,500,1000,5000 `
+  --k-values 20 `
+  --output-dir results\rq3_bm25_end_to_end
