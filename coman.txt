@@ -4,3 +4,12 @@ python rq3_end_to_end_benchmark_bm25_only.py \
   --n-values 100,500,1000,5000 \
   --k-values 20 \
   --output-dir results/rq3_bm25_end_to_end
+
+
+
+python datasets/benchmark_msmarco/rq3_end_to_end_benchmark_bm25_only.py \
+  --skip-traditional \
+  --skip-ssr \
+  --n-values 100,500,1000,5000 \
+  --k-values 20 \
+  --output-dir datasets/benchmark_msmarco/results/rq3_bm25_end_to_end
