@@ -18,3 +18,21 @@ python datasets/benchmark_msmarco/rq3_end_to_end_benchmark_bm25_only.py \
 python rq3_query_sampler.py \
   --sample-size 200 \
   --seed 42
+
+
+python - <<'PY'
+import json
+
+with open("rq3_query_sample.json", encoding="utf-8") as f:
+    x = json.load(f)
+
+print("selected_total:", len(x["queries"]))
+print("seed:", x["metadata"].get("seed"))
+print("selection_method:", x["metadata"].get("selection_method"))
+print("selection_depends_on_ssr_output:",
+      x["metadata"].get("selection_depends_on_ssr_output"))
+
+print("\nFirst 5:")
+for q in x["queries"][:5]:
+    print(q["query_id"], q["positive_ids"])
+PY
